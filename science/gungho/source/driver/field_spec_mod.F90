@@ -80,28 +80,24 @@ module field_spec_mod
   integer, parameter :: missing_fs = imdi
 
   !> @brief Metadata needed to construct a model field
+  !> @details The members of the type are initialised to default values
   type :: field_spec_type
-    character(str_def) :: name        ! Field name
-    integer(i_def) :: main_coll       ! Enumerator of main field collection
-    integer(i_def) :: space           ! Function space enumerator
-    integer(i_def) :: order           ! Function space order
-    integer(i_def) :: adv_coll        ! Enumerator of advected field collection
-    integer(i_def) :: moist_arr       ! Enumerator of moisture array
-    integer(i_def) :: moist_idx       ! Index into moisture array
-    integer(i_def) :: time_axis       ! Enumerator of time axis
-    character(str_def) :: mult        ! Name of multidata item, or blank string
-    logical(l_def) :: ckp             ! Is it a checkpoint (prognostic) field?
-    logical(l_def) :: twod            ! Is it two-dimensional?
-    logical(l_def) :: empty           ! Is it empty (with an empty data array)?
-    logical(l_def) :: coarse          ! Is it coarse?
-    logical(l_def) :: is_int          ! Is it an integer field?
-    logical(l_def) :: legacy          ! Is it a field with legacy checkpointing?
+    character(str_def) :: name      = ''                  ! Field name
+    integer(i_def)     :: main_coll = imdi                ! Enumerator of main field collection
+    integer(i_def)     :: space     = missing_fs          ! Function space enumerator
+    integer(i_def)     :: order     = 0                   ! Function space order
+    integer(i_def)     :: adv_coll  = adv_coll_dict%none  ! Enumerator of advected field collection
+    integer(i_def)     :: moist_arr = moist_arr_dict%none ! Enumerator of moisture array
+    integer(i_def)     :: moist_idx = 0                   ! Index into moisture array
+    integer(i_def)     :: time_axis = time_axis_dict%none ! Enumerator of time axis
+    character(str_def) :: mult      = ''                  ! Name of multidata item, or blank string
+    logical(l_def)     :: ckp       = .false.             ! Is it a checkpoint (prognostic) field?
+    logical(l_def)     :: twod      = .false.             ! Is it two-dimensional?
+    logical(l_def)     :: empty     = .false.             ! Is it empty (with an empty data array)?
+    logical(l_def)     :: coarse    = .false.             ! Is it coarse?
+    logical(l_def)     :: is_int    = .false.             ! Is it an integer field?
+    logical(l_def)     :: legacy    = .false.             ! Is it a field with legacy checkpointing?
   end type field_spec_type
-
-  !> @brief Constructor interface
-  interface field_spec_type
-    module procedure field_spec_constructror
-  end interface field_spec_type
 
   private
   public :: field_spec_type, &
@@ -185,28 +181,6 @@ contains
     self%clock => clock
   end subroutine processor_set_clock
 
-  !> @brief default constructor for field specifiers
-  !> @return constructed field specifier
-  function field_spec_constructror() result(self)
-    implicit none
-    type(field_spec_type) :: self
-    self%name = ''
-    self%main_coll = imdi
-    self%moist_arr = moist_arr_dict%none
-    self%moist_idx = 0
-    self%time_axis = time_axis_dict%none
-    self%space = missing_fs
-    self%order = 0
-    self%adv_coll = adv_coll_dict%none
-    self%mult = ''
-    self%ckp = .false.
-    self%twod = .false.
-    self%empty = .false.
-    self%coarse = .false.
-    self%is_int = .false.
-    self%legacy = .false.
-  end function field_spec_constructror
-
   !> @brief Convenience function for creating field specifiers
   !> @param[in] name               Field name
   !> @param[in] main_coll          Enumerator of main fields collection
@@ -245,7 +219,6 @@ contains
     logical(l_def), optional, intent(in) :: legacy
     type(field_spec_type) :: field_spec
 
-    field_spec = field_spec_type()
     field_spec%name = name
     field_spec%main_coll = main_coll
     if (present(space)) field_spec%space=space
