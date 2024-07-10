@@ -11,7 +11,7 @@ apps/science/gungho/source/algorithm/runtime_constants/intermesh_constants_mod.x
 apps/science/gungho/source/algorithm/runtime_constants/limited_area_constants_mod.x90
 apps/science/gungho/source/algorithm/runtime_constants/physical_op_constants_mod.X90
 apps/science/gungho/source/algorithm/runtime_constants/runtime_tools_mod.f90
-apps/science/gungho/source/algorithm/si_diagnostics_mod.x90
+apps/science/gungho/source/algorithm/diagnostics/si_diagnostics_mod.x90
 apps/science/gungho/source/algorithm/solver/semi_implicit_solver_alg_mod.x90
 apps/science/gungho/source/algorithm/solver/si_operators_alg_mod.x90
 apps/science/gungho/source/algorithm/transport/common/transport_metadata_collection_mod.F90
@@ -38,8 +38,8 @@ apps/science/gungho/source/orography/analytic_orography_mod.F90
 apps/science/gungho/source/orography/orography_helper_functions_mod.F90
 apps/science/gungho/source/physics/mr_indices_mod.f90
 apps/science/jedi_lfric_interface/source/field/jedi_lfric_utils_mod.x90
-apps/science/linear/source/algorithm/tl_rk_alg_timestep_mod.x90
-apps/science/linear/source/algorithm/tl_si_timestep_alg_mod.x90
+apps/science/linear/source/algorithm/timestepping/tl_rk_alg_timestep_mod.x90
+apps/science/linear/source/algorithm/timestepping/tl_si_timestep_alg_mod.x90
 apps/science/linear/source/algorithm/transport/common/tl_transport_runtime_collection_mod.F90
 apps/science/linear/source/driver/linear_model_data_mod.f90
 apps/science/linear/source/kernel/transport/mol/tl_poly1d_vert_w3_reconstruction_kernel_mod.F90
