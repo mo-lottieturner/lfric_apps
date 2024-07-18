@@ -46,6 +46,8 @@ module update_iau_inc_alg_mod
   use sci_print_meanrms_field_mod,      only : print_meanrms_field
   use locate_tropopause_alg_mod,        only : locate_tropopause_alg
   use sci_field_minmax_alg_mod,         only : log_field_minmax
+  use sci_set_any_dof_kernel_mod,       only : set_any_dof_kernel_type
+  use reference_element_mod,            only : T
 
   implicit none
 
@@ -224,7 +226,13 @@ module update_iau_inc_alg_mod
     call theta_inc % copy_field_properties( upward_wind_tmp )
     call invoke( setval_c( upward_wind_tmp, 0.0_r_def ) )
     call set_wind( u_inc, u_in_w3_inc, v_in_w3_inc, upward_wind_tmp )
-    call invoke( inc_X_plus_bY( u, iau_weight, u_inc ) )
+    ! Set wind assumes input winds are truly horizontal and truly vertical.
+    ! Over sloping surfaces, this creates unphysical flow into the surface
+    ! and large divergences which can cause model failures.
+    ! We set the vertical dofs of the w2 wind to zero to enforce the near
+    ! surface wind to be terrain-following.
+    call invoke( set_any_dof_kernel_type(u_inc, T, 0.0_r_def), &
+                 inc_X_plus_bY( u, iau_weight, u_inc ) )
 
     call log_event( '- After wind -', log_level_debug )
     call log_field_minmax( log_level_debug, 'wind', u )
