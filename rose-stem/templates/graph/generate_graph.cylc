@@ -156,5 +156,4 @@
         {# This line must be indented by 8 spaces #}
         R1 = """ {{graph_str.str}} """
 
-
 {% do LOG.debug("Finished in templates/graph/generate_graph.cylc") %}

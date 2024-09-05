@@ -1,0 +1,145 @@
+{# ########################################################################### #}
+{# (c) Crown copyright 2024 Met Office. All rights reserved. #}
+{# The file LICENCE, distributed with this code, contains details of the terms #}
+{# under which the code may be used. #}
+{# ########################################################################### #}
+{% do LOG.debug("Entered site/ncas/common/suite_config_ex.cylc") %}
+
+{% set ex_base = 'umask 0022 ; '~
+                   'source . ; ' %}
+
+{% set ex_compiler_gnu = 'module load spack_gnu' %}
+{# see if we need this at some point #}
+
+    [[EX_BASE]]
+        platform = archer2_bg
+        [[[environment]]]
+            BUILD_ROOT = ${CYLC_TASK_WORK_DIR}/${CYLC_WORKFLOW_NAME_BASE}_${USER}
+            HYPERTHREADS    = 1
+            CORES_PER_NODE  = 128
+            NUMA_REGIONS_PER_NODE = 8
+
+    [[EX_SLURM]]
+        inherit = EX_BASE
+        platform = archer2
+        [[[environment]]]
+            ROSE_LAUNCHER = srun
+        [[[directives]]]
+            --account={{ HPC_ACCOUNT }}
+            --chdir=/work/n02/n02/{{ HPC_USERNAME }}
+
+    [[EX_SERIAL_QUEUE]]
+        inherit = EX_SLURM
+        [[[directives]]]
+            --partition=serial
+            --qos=serial
+            --mem=25GB
+            --time=04:00:00
+
+    [[EX_STANDARD_QUEUE]]
+        inherit = EX_SLURM
+        [[[directives]]]
+            --partition=standard
+            --qos=standard
+            --time=01:00:00
+
+    [[EX_SHORT_QUEUE]]
+        inherit = EX_SLURM
+        [[[directives]]]
+            --partition=standard
+            --reservation=shortqos
+            --qos=short
+            --time=00:20:00
+
+    [[EX_BUILD]]
+        inherit=EX_SERIAL_QUEUE
+        [[[environment]]]
+            PSYCLONE_TRANSFORMATION="meto-xc40"
+        [[[directives]]]
+             --ntasks=4
+
+    [[EX_GNU]]
+        pre-script = """
+                     umask 0022
+                     source /work/n02/shared/lfric/spack/share/spack/setup-env.sh
+                     spack env activate lfric-meta-gcc
+                     module load PrgEnv-gnu
+                     """
+        [[[environment]]]
+             COMPILER = 'gnu'
+
+    [[EX_CCE]]
+        pre-script = """
+                     umask 0022
+                     source /work/n02/shared/lfric/spack/share/spack/setup-env.sh
+                     spack env activate lfric-meta-cce
+                     module load PrgEnv-cray
+                     """
+        [[[environment]]]
+             COMPILER = 'cce'
+
+    [[EX_BUILD_GNU]]
+        inherit = EX_BUILD, EX_GNU
+
+    [[EX_BUILD_CCE]]
+        inherit = EX_BUILD, EX_CCE
+
+    [[EX_RUN]]
+        {%- if site_vars["hpc_queue"] == 'short' %}
+           inherit = EX_SHORT_QUEUE
+        {%- elif site_vars["hpc_queue"] == 'standard' %}
+           inherit = EX_STANDARD_QUEUE
+        {%- else %}
+           {% do LOG.info("Using standard queue - options standard or short") %}
+           inherit = EX_STANDARD_QUEUE
+        {%- endif %}
+        [[[environment]]]
+            BIG_DATA_DIR   = '/work/y07/shared/lfric/data/'
+            SMALL_DATA_DIR = '/work/y07/shared/lfric/data/'
+            TARGET_PLATFORM = 'ncas-ex'
+            RUN_METHOD = srun
+
+    [[EX_MESH]]
+        inherit = EX_SHORT_QUEUE
+        [[[directives]]]
+            --time=00:10:00
+
+    [[EX_MESH_GNU]]
+        inherit = EX_MESH, EX_GNU
+        [[[environment]]]
+            ROSE_APP_COMMAND_KEY = srun
+
+    [[EX_MESH_CCE]]
+        inherit = EX_MESH, EX_CCE
+        [[[environment]]]
+            ROSE_APP_COMMAND_KEY = srun
+
+    [[EX_EXPORT-SOURCE]]
+        inherit = NCAS_ORIG
+        [[[environment]]]
+            hostname = $(rose host-select "archer2")
+            PLATFORM_SYNC = true
+
+    [[EX_RUN_GNU]]
+       inherit = EX_RUN, EX_GNU
+
+    [[EX_RUN_CCE]]
+       inherit = EX_RUN, EX_CCE
+
+    [[EX_TECH_BASE]]
+        inherit = EX_SHORT_QUEUE
+        [[[directives]]]
+            --nodes=1
+            --ntasks-per-node=1
+            --cpus-per-task=1
+            --time=0:20:0
+
+    [[EX_PLOT]]
+        inherit = EX_TECH_BASE
+
+    [[EX_CHECK]]
+        inherit = EX_BASE
+
+    [[EX_HOUSEKEEPING]]
+
+{% do LOG.debug("Finished in site/mcas/common/suite_config_ex.cylc") %}
