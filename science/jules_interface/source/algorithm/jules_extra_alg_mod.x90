@@ -15,6 +15,7 @@ module jules_extra_alg_mod
 
   use io_config_mod, only: subroutine_timers
   use timer_mod,     only: timer
+  use jules_surface_config_mod,      only: lake_water_conservation
 
   ! xios output
   use io_config_mod, only: write_diag, use_xios_io
@@ -23,6 +24,9 @@ module jules_extra_alg_mod
   use jules_soil_diags_mod, only: initialise_diags_for_jules_soil, &
                                   output_diags_for_jules_soil
   use jules_seaice_diags_mod, only: output_diags_for_jules_seaice
+
+  ! Other algorithms
+  use lake_water_correction_alg_mod, only: lake_water_correction
 
   implicit none
 
@@ -45,10 +49,11 @@ contains
   !> @param[in]     surf_heat_flux      Net surface heat flux (W m-2)
   !> @param[in]     canopy_evap         Canopy evaporation from land tiles (kg m-2 s-1)
   !> @param[in]     water_extraction    Extraction of water from each soil layer (kg m-2 s-1)
+  !> @param[in]     lake_evap           Evaporation from lakes GBM
   subroutine jules_extra_alg(microphysics_fields, convection_fields,      &
                              surface_fields, soil_fields, snow_fields,    &
                              surf_heat_flux,                              &
-                             canopy_evap, water_extraction)
+                             canopy_evap, water_extraction, lake_evap)
 
     use jules_extra_kernel_mod, only: jules_extra_kernel_type
     use um_sizes_init_mod,      only: um_sizes_init
@@ -64,6 +69,7 @@ contains
     type( field_type ), intent (in) :: surf_heat_flux
     type( field_type ), intent (in) :: canopy_evap
     type( field_type ), intent (in) :: water_extraction
+    type( field_type ), intent (in) :: lake_evap
 
     ! Temporary fields: unpacked fields from collections
     type( field_type ), pointer :: ls_rain                => null()
@@ -251,6 +257,12 @@ contains
                            surface_runoff, sub_surface_runoff,                 &
                            soil_moisture_content, grid_snow_mass,              &
                            throughfall) )
+
+    if ( lake_water_conservation ) then
+      call lake_water_correction(lake_evap, soil_moisture,                     &
+                                 unfrozen_soil_moisture, soil_moist_sat,       &
+                                 soil_moist_wilt, tile_fraction)
+    end if
 
     call um_sizes_init(1_i_def)
 

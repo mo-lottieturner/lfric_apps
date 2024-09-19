@@ -501,6 +501,7 @@
   <field id="surface__throughfall" name="throughfall_rate" long_name="canopy_throughfall_flux" unit="kg m-2 s-1" domain_ref="face" axis_ref="surface_tiles" />
   <field id="surface__grid_throughfall" name="grid_throughfall_rate" long_name="grid_canopy_throughfall_flux" unit="kg m-2 s-1" domain_ref="face" />
   <field id="surface__canopy_evap" name="canopy_evaporation" long_name="water_evaporation_flux_from_canopy" unit="kg m-2 s-1" domain_ref="face" axis_ref="surface_tiles" />
+  <field id="surface__lake_evap" name="lake_evaporation" long_name="water_evaporation_flux_from_lakes" unit="kg m-2 s-1" domain_ref='face'/>
   <field id="surface__grid_canopy_evap" name="grid_canopy_evaporation" long_name="grid_water_evaporation_flux_from_canopy" unit="kg m-2 s-1" domain_ref="face" />
   <field id="surface__soil_evap" name="soil_evaporation" long_name="water_evaporation_flux_from_soil" unit="kg m-2 s-1" domain_ref="face" />
   <field id="surface__snowice_sublimation" name="snowice_sublimation" long_name="surface_snow_and_ice_sublimation_rate" unit="kg m-2 s-1" domain_ref="face" axis_ref="surface_tiles" />
@@ -569,6 +570,7 @@
   <field id="soil__frozen_soil_moisture" name="layer_frozen_soil_moisture" long_name="mass_fraction_of_frozen_water_in_saturated_soil_moisture" unit=" " domain_ref="face" axis_ref="soil_levels" />
   <field id="soil__soil_temperature" name="soil_temperature" long_name="soil_temperature" unit="K" domain_ref="face" axis_ref="soil_levels" />
   <field id="soil__water_table" name="water_table" long_name="water_table_depth" unit="m" domain_ref="face" />
+  <field id="soil__soilm_change_lakes" name="soil_moisture_change_lakes" long_name="soil_moisture_change_from_lake_water_conservation" unit="kg m-2 s-1" domain_ref="face" />
   <!-- Boundary layer turbulence diagnostics -->
   <field id="turbulence__dtheta_bl" name="dtheta_bl" long_name="potential_temperature_increment_from_bl_scheme" unit="K" grid_ref="full_level_face_grid" />
   <field id="turbulence__dt_bl" name="dt_bl" long_name="temperature_increment_from_bl_scheme" unit="K" grid_ref="full_level_face_grid" />

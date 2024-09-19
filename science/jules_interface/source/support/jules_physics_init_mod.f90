@@ -204,6 +204,7 @@ contains
          i_modiscopt, l_land_ice_imp, no_drag, effective_z0,                &
          capped_lowhill, explicit_stress, l_anthrop_heat_src, l_urban2t,    &
          l_vary_z0m_soil, l_mo_buoyancy_calc
+    use jules_rivers_mod, only: lake_water_conserve_method, use_elake_surft
     use jules_urban_mod, only: anthrop_heat_scale, l_moruses_albedo,        &
          l_moruses_emissivity, l_moruses_rough, l_moruses_storage,          &
          l_moruses_storage_thin, check_jules_urban, print_nlist_jules_urban
@@ -486,6 +487,7 @@ contains
     l_urban2t          = l_urban2t_in
     l_vary_z0m_soil    = l_variable_soil_z0m
     orog_drag_param    = 0.15_r_um
+    lake_water_conserve_method = use_elake_surft
 
     ! The minimum sea ice fraction
     ! This is 0.0 for coupled models and 0.1 for atmosphere only models

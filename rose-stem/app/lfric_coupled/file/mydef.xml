@@ -189,6 +189,10 @@
 	<field id="soil__sub_surface_runoff" />
 	<field id="processed__total_prec" />
 	<field id="surface__tile_fraction" />
+	<field id="surface__lake_evap" />
+        <field id="soil__soilm_change_lakes" />
+        <field id="soil__soil_moisture" />
+        <field id="soil__unfrozen_soil_moisture" />
       </file>
 
       <file id="lfric_averages" name="lfric_averages" output_freq="12h" convention="UGRID" enabled=".TRUE.">

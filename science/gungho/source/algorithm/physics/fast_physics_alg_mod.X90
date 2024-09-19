@@ -153,6 +153,7 @@ contains
     type( field_type ) :: surf_heat_flux
     type( field_type ) :: canopy_evap
     type( field_type ) :: water_extraction
+    type( field_type ) :: lake_evap
 
     ! Temporary field to unpack from field collection
     type( field_type ), pointer :: dmv_conv => null()
@@ -228,6 +229,7 @@ contains
       call du%copy_field_properties(du_bl)
       call bl_imp_alg(dtheta_bl, du_bl, mr,                               &
                       surf_heat_flux, canopy_evap, water_extraction,      &
+                      lake_evap,                                          &
                       theta, exner, mr_n, rho,                            &
                       derived_fields, radiation_fields, orography_fields, &
                       turbulence_fields, convection_fields, cloud_fields, &
@@ -243,7 +245,8 @@ contains
         call jules_extra_alg(microphysics_fields, convection_fields,        &
                              surface_fields, soil_fields, snow_fields,      &
                              surf_heat_flux, canopy_evap,                   &
-                             water_extraction)
+                             water_extraction, lake_evap)
+
       end if ! jules
     end if ! fast_bl
 

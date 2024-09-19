@@ -40,7 +40,7 @@ module jules_imp_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_imp_kernel_type
     private
-    type(arg_type) :: meta_args(84) = (/                                          &
+    type(arg_type) :: meta_args(85) = (/                                          &
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! outer
          arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                                &! loop
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3),                       &! wetrho_in_w3
@@ -94,6 +94,7 @@ module jules_imp_kernel_mod
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_2),&! canhc_tile
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_6),&! tile_water_extract
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! ustar
+         arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! lake_evap
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      ANY_DISCONTINUOUS_SPACE_1),&! soil_moist_avail
          arg_type(GH_FIELD,  GH_INTEGER, GH_READ,      ANY_DISCONTINUOUS_SPACE_7),&! bl_type_ind
          arg_type(GH_FIELD,  GH_REAL,    GH_READ,      WTheta),                   &! qw_wth
@@ -194,6 +195,7 @@ contains
   !> @param[in]     canhc_tile           Canopy heat capacity on tiles
   !> @param[in]     tile_water_extract   Extraction of water from each tile
   !> @param[in]     ustar                Friction velocity
+  !> @param[in,out] lake_evap            Lake evaporation (grid box mean)
   !> @param[in]     soil_moist_avail     Available soil moisture for evaporation
   !> @param[in]     bl_type_ind          Diagnosed BL types
   !> @param[in,out] surf_ht_flux         Surface to sub-surface heat flux
@@ -298,6 +300,7 @@ contains
                             canhc_tile,                         &
                             tile_water_extract,                 &
                             ustar,                              &
+                            lake_evap,                          &
                             soil_moist_avail,                   &
                             bl_type_ind,                        &
                             qw_wth, tl_wth,                     &
@@ -459,6 +462,7 @@ contains
     real(kind=r_def), intent(in)    :: tile_fraction(undf_tile)
     real(kind=r_def), intent(inout) :: tile_temperature(undf_tile)
     real(kind=r_def), intent(inout) :: screen_temperature(undf_tile)
+    real(kind=r_def), intent(inout) :: lake_evap(undf_2d)
     real(kind=r_def), intent(inout) :: time_since_transition(undf_2d)
     real(kind=r_def), intent(in)    :: latitude(undf_2d)
     real(kind=r_def), intent(in)    :: tile_snow_mass(undf_tile)
@@ -1299,6 +1303,13 @@ contains
             water_extraction(map_soil(1,ainfo%land_index(l))+m-1) = &
                  real(fluxes%ext_soilt(l, 1, m), r_def)
           end do
+        end do
+
+        ! Lake evaporation is needed for the lake water correction but it is converted to
+        ! grid box means.
+        do l = 1, land_field
+          lake_evap(map_2d(1,ainfo%land_index(l))) = real(fluxes%lake_evap(l), r_def) * &
+                                   tile_fraction(map_tile(1,ainfo%land_index(l))+lake-1)
         end do
 
         ! diagnostics
