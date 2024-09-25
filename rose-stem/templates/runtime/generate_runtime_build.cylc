@@ -58,6 +58,8 @@
             RDEF_PRECISION          = {{task_values["precision"]["rdef"]}}
             R_TRAN_PRECISION        = {{task_values["precision"]["rtran"]}}
             R_BL_PRECISION          = {{task_values["precision"]["rbl"]}}
+            R_SOLVER_PRECISION      = {{task_values["precision"]["rsolver"]}}
+            R_PHYS_PRECISION        = {{task_values["precision"]["rphys"]}}
             PRE_PROCESS_MACROS      = {{task_values["pre_process_macros"]}}
             PAT_BUILD_PATH          = {{PAT_BUILD_APP}}
 

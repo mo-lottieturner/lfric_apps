@@ -30,30 +30,37 @@ def get_precision(build_string):
     except AttributeError:
         default = 64
 
-    types = ["rbl", "rdef", "rphys", "rsolver", "rtran"]
+    # Dictionary of type names and their default values
+    rbl = ["rbl", default]
+    rdef = ["rdef", default]
+    rphys = ["rphys", default]
+    rsolver = ["rsolver", 32]
+    rtran = ["rtran", default]
+    types = [rbl, rdef, rphys, rsolver, rtran]
     precisions = {}
 
     # Loop over all types and search for 'typeNN' string matches in build config
     # Extract the precision, NN, as an integer.
     # If type not in the build_string use the default
     for precision_type in types:
+        precision_name = precision_type[0]
         try:
             num = int(
-                re.search(f"{precision_type}(\d+)", build_string).group(1)
+                re.search(f"{precision_name}(\d+)", build_string).group(1)
             )
         except AttributeError:
-            num = default
-        precisions[precision_type] = num
+            num = precision_type[1]
+
+        precisions[precision_name] = num
 
     # Construct the output string defining the precision
     # Potentially change the default such that it is the most common
     # This ensures that all tasks with the same build get the same build string
     values_list = list(precisions.values())
-    str_default = max(set(values_list), key=values_list.count)
-    precision_string = f"{str_default}bit"
+    precision_string = f"{default}bit"
     for precision_type in types:
-        num = precisions[precision_type]
-        if num != default:
-            precision_string += f"-{precision_type}{num}"
+        num = precisions[precision_type[0]]
+        if num != precision_type[1]:
+            precision_string += f"-{precision_type[0]}{num}"
 
     return [precisions, precision_string]
