@@ -5,5 +5,5 @@ Inner product checksum mr1 = 402B12A6BC814B6B
 Inner product checksum mr2 = 3F545B95391A157D
 Inner product checksum mr3 = 3E6D3EDAFB8BE2AE
 Inner product checksum mr4 = 3B82A69A113CA61D
-Inner product checksum mr5 = 3ADFA38548D9A972
+Inner product checksum mr5 = 3ADFA38548D9A971
 Inner product checksum mr6 =                0

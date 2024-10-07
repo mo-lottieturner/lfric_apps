@@ -24,7 +24,7 @@
 export lfric_core_rev=51107
 export lfric_core_sources=
 
-export casim_rev=um13.6
+export casim_rev=11541
 export casim_sources=
 export jules_rev=29007
 export jules_sources=
@@ -34,7 +34,7 @@ export socrates_rev=1659
 export socrates_sources=
 export ukca_rev=4730
 export ukca_sources=
-export um_rev=126454
+export um_rev=126496
 export um_sources=
 
 #### Do not edit the definitions below this line without
