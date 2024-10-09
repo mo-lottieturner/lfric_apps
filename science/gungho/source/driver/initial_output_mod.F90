@@ -40,7 +40,8 @@ contains
 
 #ifdef USE_XIOS
     !>@todo This will be removed by #3321
-    use lfric_xios_context_mod, only : lfric_xios_context_type, advance
+    use lfric_xios_context_mod, only : lfric_xios_context_type
+    use lfric_xios_action_mod,  only : advance
 #endif
 
     implicit none

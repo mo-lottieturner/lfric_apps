@@ -11,6 +11,8 @@ module jedi_lfric_io_setup_mod
   use constants_mod,             only: i_def
   use driver_fem_mod,            only: init_fem, final_fem
   use empty_io_context_mod,      only: empty_io_context_type
+  use event_actor_mod,           only: event_actor_type
+  use event_mod,                 only: event_action
   use field_mod,                 only: field_type
   use inventory_by_mesh_mod,     only: inventory_by_mesh_type
   use io_config_mod,             only: subroutine_timers
@@ -28,7 +30,8 @@ module jedi_lfric_io_setup_mod
 
 #ifdef USE_XIOS
   use io_context_mod,           only: io_context_type, callback_clock_arg
-  use lfric_xios_context_mod,   only: lfric_xios_context_type, advance
+  use lfric_xios_context_mod,   only: lfric_xios_context_type
+  use lfric_xios_action_mod,    only: advance
 #endif
 
   implicit none
@@ -67,6 +70,7 @@ contains
     type(mesh_type), pointer     :: mesh
     type(field_type), pointer    :: chi(:)
     type(field_type), pointer    :: panel_id
+
 
     nullify(mesh, chi, panel_id)
 
@@ -126,16 +130,19 @@ contains
     integer(i_def),                         intent(in) :: communicator
     type(jedi_lfric_file_meta_type),        intent(in) :: file_meta(:)
     class(calendar_type),                   intent(in) :: calendar
-    class(io_context_type), allocatable, intent(inout) :: io_context
+    class(io_context_type), target, allocatable, intent(inout) :: io_context
     type(field_type),                       intent(in) :: chi(:)
     type(field_type),                       intent(in) :: panel_id
     type(model_clock_type),              intent(inout) :: model_clock
     procedure(callback_clock_arg), optional            :: before_close
 
+
     ! Local
     procedure(callback_clock_arg), pointer :: before_close_ptr => null()
     integer(i_def) :: rc
     type(linked_list_type), pointer :: file_list
+    class(event_actor_type), pointer :: event_actor_ptr
+    procedure(event_action), pointer :: context_advance
 
     ! Allocate XIOS IO context types
     if (present(before_close)) then
@@ -164,6 +171,10 @@ contains
                                                chi, panel_id,         &
                                                model_clock, calendar, &
                                                before_close_ptr )
+      ! Attach context advancement to the model's clock
+      context_advance => advance
+      event_actor_ptr => io_context
+      call model_clock%add_event( context_advance, event_actor_ptr )
     end select
 
   end subroutine init_io

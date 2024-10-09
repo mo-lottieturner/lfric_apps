@@ -18,6 +18,8 @@ USE driver_mesh_mod,            ONLY: init_mesh
 USE driver_fem_mod,             ONLY: init_fem
 USE driver_log_mod,             ONLY: init_logger, final_logger
 USE derived_config_mod,         ONLY: set_derived_config
+USE event_mod,                  ONLY: event_action
+USE event_actor_mod,            ONLY: event_actor_type
 USE extrusion_mod,              ONLY: extrusion_type,         &
                                       uniform_extrusion_type, &
                                       TWOD
@@ -29,7 +31,8 @@ USE halo_comms_mod,             ONLY: initialise_halo_comms
 USE inventory_by_mesh_mod,      ONLY: inventory_by_mesh_type
 USE model_clock_mod,            ONLY: model_clock_type
 USE io_context_mod,             ONLY: callback_clock_arg
-USE lfric_xios_context_mod,     ONLY: lfric_xios_context_type, advance
+USE lfric_xios_context_mod,     ONLY: lfric_xios_context_type
+USE lfric_xios_action_mod,      ONLY: advance
 USE lfric_xios_driver_mod,      ONLY: lfric_xios_initialise, &
                                       lfric_xios_finalise
 USE lfricinp_setup_io_mod,      ONLY: io_config
@@ -78,7 +81,7 @@ TYPE(mesh_type), PUBLIC, pointer :: twod_mesh => null()
 TYPE(field_collection_type) :: lfric_fields
 
 TYPE(model_clock_type), PUBLIC, ALLOCATABLE :: model_clock
-type(lfric_xios_context_type),  ALLOCATABLE :: io_context
+type(lfric_xios_context_type), TARGET :: io_context
 
 CONTAINS
 
@@ -108,6 +111,8 @@ TYPE(field_type), POINTER :: panel_id => null()
 TYPE(inventory_by_mesh_type), POINTER :: chi_inventory => null()
 TYPE(inventory_by_mesh_type), POINTER :: panel_id_inventory => null()
 PROCEDURE(callback_clock_arg), POINTER :: before_close => null()
+CLASS(event_actor_type), POINTER :: event_actor_ptr
+PROCEDURE(event_action), POINTER :: context_advance
 
 
 TYPE(namelist_collection_type), SAVE :: configuration
@@ -242,12 +247,16 @@ model_calendar = step_calendar_type(time_origin, start_date)
 model_clock = model_clock_type( first_step, last_step, seconds_per_step, &
                                 MAX(spinup_period, 0.0_r_second) )
 
-allocate( io_context )
 file_list => io_context%get_filelist()
 CALL io_config%init_lfricinp_files(file_list)
-call io_context%initialise( xios_ctx )
+CALL io_context%initialise( xios_ctx )
 CALL io_context%initialise_xios_context( comm, chi, panel_id, &
                                          model_clock, model_calendar, before_close )
+! Attach context advancement to the model's clock
+context_advance => advance
+event_actor_ptr => io_context
+CALL model_clock%add_event( context_advance, event_actor_ptr)
+
 CALL advance(io_context, model_clock)
 
 ! Initialise runtime constants
@@ -316,17 +325,13 @@ SUBROUTINE lfricinp_finalise_lfric()
 USE halo_comms_mod,            ONLY: finalise_halo_comms
 USE log_mod,                   ONLY: log_event, LOG_LEVEL_INFO
 
-! External libraries
-USE xios,                      ONLY: xios_finalize
-
-
 IMPLICIT NONE
 
 CALL log_event( 'Calling lfric finalise routines', LOG_LEVEL_INFO )
 
 ! Finalise halos, XIOS, etc.
 CALL finalise_halo_comms()
-deallocate( io_context )
+CALL io_context%finalise_xios_context()
 CALL lfric_xios_finalise()
 
 CALL final_collections()
