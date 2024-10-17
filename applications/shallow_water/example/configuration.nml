@@ -221,6 +221,7 @@ scheme                   = 7*1
 si_outer_transport       = 'none'
 slice_order              = 'cubic'
 splitting                = 7*1
+substep_transport        = 'off'
 theta_dispersion_correction=.false.
 theta_variable           = 'dry'
 use_density_predictor    = .true.

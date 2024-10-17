@@ -11,10 +11,11 @@
 
 module watkins_kernel_mod
 
-use argument_mod,                only : arg_type, GH_SCALAR,   &
-                                        GH_FIELD, GH_REAL,     &
-                                        GH_READWRITE, GH_READ, &
-                                        CELL_COLUMN
+use argument_mod,                only : arg_type, GH_SCALAR,       &
+                                        GH_FIELD, GH_REAL,         &
+                                        GH_READWRITE, GH_READ,     &
+                                        ANY_DISCONTINUOUS_SPACE_2, &
+                                        GH_INTEGER, CELL_COLUMN
 use fs_continuity_mod,           only : W3, W2v, W2
 use constants_mod,               only : r_tran, i_def, EPS_R_TRAN
 use kernel_mod,                  only : kernel_type
@@ -31,11 +32,12 @@ private
 !> The type declaration for the kernel. Contains the metadata needed by the Psy layer
 type, public, extends(kernel_type) :: watkins_kernel_type
   private
-  type(arg_type) :: meta_args(4) = (/                   &
-       arg_type(GH_FIELD,  GH_REAL, GH_READWRITE, W2v), & ! first_v_wind
-       arg_type(GH_FIELD,  GH_REAL, GH_READ,      W2),  & ! wind
-       arg_type(GH_SCALAR, GH_REAL, GH_READ),           & ! dt
-       arg_type(GH_FIELD,  GH_REAL, GH_READ,      W3)   & ! detj
+  type(arg_type) :: meta_args(5) = (/                                            &
+       arg_type(GH_FIELD,  GH_REAL,    GH_READWRITE, W2v),                       & ! first_v_wind
+       arg_type(GH_FIELD,  GH_INTEGER, GH_READWRITE, ANY_DISCONTINUOUS_SPACE_2), & ! watkins_failures
+       arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W2),                        & ! wind
+       arg_type(GH_SCALAR, GH_REAL,    GH_READ),                                 & ! dt
+       arg_type(GH_FIELD,  GH_REAL,    GH_READ,      W3)                         & ! detj
        /)
   integer :: operates_on = CELL_COLUMN
 contains
@@ -51,25 +53,36 @@ contains
 
 !> @brief Implements Watkins algorithm to adjust vertical wind to avoid
 !!        breaching Lipschitz conditions
-!> @param[in]     nlayers        The number of layers in the mesh
-!> @param[in,out] first_v_wind   Wind for first vertical step
-!> @param[in]     wind           3D wind
-!> @param[in]     dt             Transport time step
-!> @param[in]     detj           Det(J) at W3: the volume of cells
-!> @param[in]     ndf_w2v        Number of DoFs per cell for W2V
-!> @param[in]     undf_w2v       Number of W2V DoFs in memory for this partition
-!> @param[in]     map_w2v        Map of lowest-cell W2V DoFs
-!> @param[in]     ndf_w3         Number of DoFs per cell for W3
-!> @param[in]     undf_w3        Number of W3 DoFs in memory for this partition
-!> @param[in]     map_w3         Map of lowest-cell W3 DoFs
+!> @param[in]     nlayers          The number of layers in the mesh
+!> @param[in,out] first_v_wind     Wind for first vertical step
+!> @param[in,out] watkins_failures Integer field set to 1 if Watkins fails
+!> @param[in]     wind             3D wind
+!> @param[in]     dt               Transport time step
+!> @param[in]     detj             Det(J) at W3: the volume of cells
+!> @param[in]     ndf_w2v          Number of DoFs per cell for W2V
+!> @param[in]     undf_w2v         Number of W2V DoFs in memory for this partition
+!> @param[in]     map_w2v          Map of lowest-cell W2V DoFs
+!> @param[in]     ndf_w3_2d        Number of DoFs per cell for W3_2d
+!> @param[in]     undf_w3_2d       Number of W3_2d DoFs in memory for this partition
+!> @param[in]     map_w3_2d        Map of W3_2d DoFs
+!> @param[in]     ndf_w2           Number of DoFs per cell for W2
+!> @param[in]     undf_w2          Number of W2 DoFs in memory for this partition
+!> @param[in]     map_w2           Map of lowest-cell W2 DoFs
+!> @param[in]     ndf_w3           Number of DoFs per cell for W3
+!> @param[in]     undf_w3          Number of W3 DoFs in memory for this partition
+!> @param[in]     map_w3           Map of lowest-cell W3 DoFs
 subroutine watkins_code( nlayers,             &
                          first_v_wind,        &
+                         watkins_failures,    &
                          wind,                &
                          dt,                  &
                          detj,                &
                          ndf_w2v,             &
                          undf_w2v,            &
                          map_w2v,             &
+                         ndf_w3_2d,           &
+                         undf_w3_2d,          &
+                         map_w3_2d,           &
                          ndf_w2,              &
                          undf_w2,             &
                          map_w2,              &
@@ -81,15 +94,17 @@ subroutine watkins_code( nlayers,             &
 
   ! Arguments
   integer(kind=i_def), intent(in)    :: nlayers
-  integer(kind=i_def), intent(in)    :: ndf_w2v, ndf_w3, ndf_w2
-  integer(kind=i_def), intent(in)    :: undf_w2v, undf_w3, undf_w2
+  integer(kind=i_def), intent(in)    :: ndf_w2v, ndf_w3, ndf_w2, ndf_w3_2d
+  integer(kind=i_def), intent(in)    :: undf_w2v, undf_w3, undf_w2, undf_w3_2d
   integer(kind=i_def), intent(in)    :: map_w2(ndf_w2)
   integer(kind=i_def), intent(in)    :: map_w2v(ndf_w2v)
   integer(kind=i_def), intent(in)    :: map_w3(ndf_w3)
+  integer(kind=i_def), intent(in)    :: map_w3_2d(ndf_w3_2d)
   real(kind=r_tran),   intent(in)    :: dt
   real(kind=r_tran),   intent(in)    :: detj(undf_w3)
   real(kind=r_tran),   intent(in)    :: wind(undf_w2)
   real(kind=r_tran),   intent(inout) :: first_v_wind(undf_w2v)
+  integer(kind=i_def), intent(inout) :: watkins_failures(undf_w3_2d)
 
   integer(kind=i_def) :: k
   real(kind=r_tran)   :: lip_z_half, lip_hori
@@ -99,6 +114,9 @@ subroutine watkins_code( nlayers,             &
   real(kind=r_tran)   :: max_lip_init, max_lip_new
 
   real(kind=r_tran), parameter :: threshold = 0.9_r_tran
+
+  ! Set failures to zero
+  watkins_failures(map_w3_2d(1)) = 0_i_def
 
   ! -------------------------------------------------------------------------- !
   ! Fill first V wind with Strang split values
@@ -232,6 +250,7 @@ subroutine watkins_code( nlayers,             &
       max_lip_new > threshold + EPS_R_TRAN) then
 
     call log_event('Watkins algorithm failed. Reverting to original wind', LOG_LEVEL_INFO)
+    watkins_failures(map_w3_2d(1)) = 1_i_def
 
     ! Set the bottom value
     first_v_wind(map_w2v(1)) = 0.0_r_tran
@@ -246,6 +265,7 @@ subroutine watkins_code( nlayers,             &
 
   else if (max_lip_new > threshold + EPS_R_TRAN) then
     call log_event('Watkins algorithm failed to reduce Lipschitz numbers to below threshold', LOG_LEVEL_INFO)
+    watkins_failures(map_w3_2d(1)) = 1_i_def
   end if
 
 end subroutine watkins_code

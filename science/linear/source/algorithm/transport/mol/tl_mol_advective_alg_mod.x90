@@ -75,9 +75,10 @@ contains
     advecting_wind    => tl_transport_runtime%get_directional_advecting_wind( mesh%get_id(), direction )
     ls_advecting_wind => transport_runtime%get_directional_advecting_wind( mesh%get_id(), direction )
 
-    number_substeps = transport_runtime%get_number_substeps( mesh%get_id(), &
-                                                             direction,     &
-                                                             transport_metadata%get_splitting() )
+    number_substeps = transport_runtime%get_number_mol_substeps( &
+                                                  mesh%get_id(), &
+                                                  direction,     &
+                                                  transport_metadata%get_splitting() )
 
     dt_substep      = transport_runtime%get_dt_substep( mesh%get_id(), &
                                                         direction,     &

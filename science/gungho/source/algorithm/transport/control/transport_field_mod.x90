@@ -12,7 +12,7 @@ module transport_field_mod
   use constants_mod,                    only: r_def, r_tran, i_def, l_def
   use field_mod,                        only: field_type
   use r_tran_field_mod,                 only: r_tran_field_type
-  use log_mod,                          only: log_event, LOG_LEVEL_ERROR
+  use log_mod,                          only: log_event, LOG_LEVEL_ERROR, LOG_LEVEL_INFO
   use ffsl_control_alg_mod,             only: ffsl_control
   use split_transport_mod,              only: split_transport_control
   use transport_metadata_mod,           only: transport_metadata_type
@@ -88,20 +88,23 @@ contains
     real(kind=r_tran),             intent(in)    :: model_dt
     type(transport_metadata_type), intent(in)    :: transport_metadata
 
-    ! Transport runtime options
+    ! Transport runtime options and sub stepping
     type(transport_runtime_type), pointer :: transport_runtime
     type(transport_metadata_type)         :: transport_metadata_option
     logical(kind=l_def)                   :: advective_flag
     logical(kind=l_def)                   :: no_mono_flag
+    integer(kind=i_def)                   :: number_of_substeps, step_count
+    real(kind=r_tran)                     :: transport_dt
 
-    ! Reset the counter for tracer transport steps and store nth level field
+    ! Fields
+    type(r_tran_field_type) :: field_in, field_out
+
+    ! Get transport runtime
     transport_runtime => get_transport_runtime(field_n%get_mesh())
-    call transport_runtime%reset_tracer_step_ctr()
-    call transport_runtime%set_field_n(field_n)
+
     ! Get advective form and no monotonicity flags
     advective_flag = transport_runtime%get_advective_flag()
     no_mono_flag   = transport_runtime%get_no_mono_flag()
-    nullify( transport_runtime )
 
     ! Change transport_metadata based on semi-implicit first outer transport options
     transport_metadata_option = transport_metadata
@@ -114,64 +117,92 @@ contains
       call transport_metadata_option%set_no_mono()
     end if
 
-    ! First choose scheme, and for full 3D schemes then choose equation
-    select case ( transport_metadata_option%get_scheme() )
+    ! Get the number of substeps
+    number_of_substeps = transport_runtime%get_number_total_substeps()
+    transport_dt = model_dt / real(number_of_substeps, r_tran)
 
-    ! -------------------------------------------------------------------------!
-    ! Full 3D Method of Lines scheme
-    ! -------------------------------------------------------------------------!
-    case ( scheme_mol_3d )
-      ! Choose form of transport equation
-      select case ( transport_metadata_option%get_equation_form() )
-      case ( equation_form_conservative )
-         call mol_conservative_alg(field_np1, field_n, &
+    ! Set field_in and field_out
+    call field_n%copy_field_properties(field_in)
+    call field_np1%copy_field_properties(field_out)
+    call invoke( setval_X(field_in, field_n),  &
+                 setval_X(field_out, field_n) )
+
+    do step_count = 1, number_of_substeps
+
+      ! Reset the counter for tracer transport steps and store nth level field
+      call transport_runtime%reset_tracer_step_ctr()
+      call transport_runtime%set_field_n(field_in)
+      ! Set the substep counter
+      call transport_runtime%set_substep_total_ctr(step_count)
+
+      ! First choose scheme, and for full 3D schemes then choose equation
+      select case ( transport_metadata_option%get_scheme() )
+
+      ! -------------------------------------------------------------------------!
+      ! Full 3D Method of Lines scheme
+      ! -------------------------------------------------------------------------!
+      case ( scheme_mol_3d )
+        ! Choose form of transport equation
+        select case ( transport_metadata_option%get_equation_form() )
+        case ( equation_form_conservative )
+           call mol_conservative_alg(field_out, field_in, &
+                                     direction_3d, transport_metadata_option)
+
+        case ( equation_form_advective )
+           call mol_advective_alg(field_out, field_in, &
+                                  direction_3d, transport_metadata_option)
+
+        case ( equation_form_consistent )
+           call mol_consistent_alg(field_out, field_in, &
                                    direction_3d, transport_metadata_option)
 
-      case ( equation_form_advective )
-         call mol_advective_alg(field_np1, field_n, &
-                                direction_3d, transport_metadata_option)
+        case default
+          call log_event('Trying to solve unrecognised form of transport equation', &
+                          LOG_LEVEL_ERROR)
 
-      case ( equation_form_consistent )
-         call mol_consistent_alg(field_np1, field_n, &
-                                 direction_3d, transport_metadata_option)
+        end select
+
+      ! -------------------------------------------------------------------------!
+      ! Full 3D Flux-Form Semi-Lagrangian scheme
+      ! -------------------------------------------------------------------------!
+      case ( scheme_ffsl_3d )
+        ! Choose form of transport equation
+        select case ( transport_metadata_option%get_equation_form() )
+        case ( equation_form_conservative, equation_form_advective )
+          call ffsl_control(field_out, field_in, direction_3d, &
+                            transport_dt, transport_metadata_option)
+
+        case ( equation_form_consistent )
+          call log_event('Consistent 3D FFSL not implemented', LOG_LEVEL_ERROR)
+
+        case default
+          call log_event('Trying to solve unrecognised form of transport equation', &
+                          LOG_LEVEL_ERROR)
+
+        end select
+
+      ! -------------------------------------------------------------------------!
+      ! Some split horizontal/vertical transport scheme
+      ! -------------------------------------------------------------------------!
+      case ( scheme_split )
+        call split_transport_control(field_out, field_in, transport_dt, &
+                                     transport_metadata_option)
 
       case default
-        call log_event('Trying to solve unrecognised form of transport equation', &
+        call log_event('Trying to transport with unrecognised scheme', &
                         LOG_LEVEL_ERROR)
 
       end select
 
-    ! -------------------------------------------------------------------------!
-    ! Full 3D Flux-Form Semi-Lagrangian scheme
-    ! -------------------------------------------------------------------------!
-    case ( scheme_ffsl_3d )
-      ! Choose form of transport equation
-      select case ( transport_metadata_option%get_equation_form() )
-      case ( equation_form_conservative, equation_form_advective )
-        call ffsl_control(field_np1, field_n, direction_3d, &
-                          model_dt, transport_metadata_option)
+      if (step_count < number_of_substeps) then
+        call invoke( setval_X(field_in, field_out) )
+      end if
 
-      case ( equation_form_consistent )
-        call log_event('Consistent 3D FFSL not implemented', LOG_LEVEL_ERROR)
+    end do ! step_count
 
-      case default
-        call log_event('Trying to solve unrecognised form of transport equation', &
-                        LOG_LEVEL_ERROR)
+    call invoke( setval_X(field_np1, field_out) )
 
-      end select
-
-    ! -------------------------------------------------------------------------!
-    ! Some split horizontal/vertical transport scheme
-    ! -------------------------------------------------------------------------!
-    case ( scheme_split )
-      call split_transport_control(field_np1, field_n, model_dt, &
-                                   transport_metadata_option)
-
-    case default
-      call log_event('Trying to transport with unrecognised scheme', &
-                      LOG_LEVEL_ERROR)
-
-    end select
+    nullify( transport_runtime )
 
   end subroutine transport_field_r_tran
 

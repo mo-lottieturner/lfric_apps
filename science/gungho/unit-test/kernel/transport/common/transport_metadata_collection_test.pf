@@ -61,6 +61,7 @@ contains
                                      horizontal_monotone,           &
                                      vertical_monotone,             &
                                      vertical_monotone_order,       &
+                                     substep_transport_off,         &
                                      theta_variable_dry,            &
                                      min_val_method_iterative,      &
                                      calculate_detj_upwind
@@ -116,6 +117,7 @@ contains
       slice_order = slice_order_cubic,                     &
       vertical_sl_order = vertical_sl_order_quintic,       &
       si_outer_transport = si_outer_transport_none,        &
+      substep_transport = substep_transport_off,           &
       theta_variable=theta_variable_dry,                   &
       theta_dispersion_correction  = .false.,              &
       use_density_predictor = .false.,                     &

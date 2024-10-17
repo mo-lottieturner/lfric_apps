@@ -166,7 +166,7 @@ module mol_consistent_alg_mod
                  setval_X(mr_np1, mr_in) )
 
     ! Get transport runtime settings
-    number_substeps = transport_runtime%get_number_substeps(prime_extrusion_mesh_id, direction, &
+    number_substeps = transport_runtime%get_number_mol_substeps(prime_extrusion_mesh_id, direction, &
                                                             transport_metadata%get_splitting())
     dt_substep = transport_runtime%get_dt_substep(prime_extrusion_mesh_id, direction, &
                                                   transport_metadata%get_splitting())

@@ -216,6 +216,7 @@ field_names = 'density','potential_temperature','wind','moisture','tracer'
 scheme = 5*1
 equation_form = 1,2,2,2,2
 splitting = 5*1
+substep_transport='off',
 horizontal_method = 5*1
 vertical_method = 5*1
 horizontal_monotone = 5*1

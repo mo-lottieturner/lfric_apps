@@ -29,16 +29,18 @@ contains
     real(kind=r_tran),   parameter   :: dt = 2.0_r_tran
 
     integer(kind=i_def)              :: nlayers
-    integer(kind=i_def)              :: ndf_w2v, ndf_w3
-    integer(kind=i_def)              :: undf_w2v, undf_w3
+    integer(kind=i_def)              :: ndf_w2v, ndf_w3, ndf_w3_2d
+    integer(kind=i_def)              :: undf_w2v, undf_w3, undf_w3_2d
     integer(kind=i_def)              :: undf_w2, ndf_w2
     integer(kind=i_def), allocatable :: map_w2(:)
     integer(kind=i_def), allocatable :: map_w2v(:)
     integer(kind=i_def), allocatable :: map_w3(:)
+    integer(kind=i_def), allocatable :: map_w3_2d(:)
     real(kind=r_tran),   allocatable :: wind(:)
     real(kind=r_tran),   allocatable :: detj_at_w3(:)
     real(kind=r_tran),   allocatable :: first_v_wind(:)
     real(kind=r_tran),   allocatable :: answer(:)
+    integer(kind=i_def), allocatable :: watkins_failures(:)
 
     ! Set integer values to describe mesh (single column)
     nlayers = 10
@@ -48,22 +50,28 @@ contains
     ndf_w3 = 1
     undf_w2 = 5*nlayers + 1
     ndf_w2 = 6
+    undf_w3_2d = 1
+    ndf_w3_2d = 1
 
     allocate(map_w2v(ndf_w2v))
     allocate(map_w3(ndf_w3))
     allocate(map_w2(ndf_w2))
+    allocate(map_w3_2d(ndf_w3_2d))
 
     allocate(wind(undf_w2))
     allocate(first_v_wind(undf_w2v))
     allocate(detj_at_w3(undf_w3))
     allocate(answer(undf_w2v))
+    allocate(watkins_failures(undf_w3_2d))
 
     ! DoF maps
     map_w3 = (/ 1 /)
     map_w2v = (/ 1, 2 /)
     map_w2 = (/ 1, 1 + nlayers, 1 + 2*nlayers, 1 + 3*nlayers, 1 + 4*nlayers, 2 + 4*nlayers /)
+    map_w3_2d = (/ 1 /)
 
     detj_at_w3(:) = 1000.0_r_tran
+    watkins_failures = 0_i_def
 
     ! ------------------------------------------------------------------------ !
     ! TEST INVOLVING UPDATING WIND BELOW CELL
@@ -145,12 +153,16 @@ contains
 
     call watkins_code( nlayers,             &
                        first_v_wind,        &
+                       watkins_failures,    &
                        wind,                &
                        dt,                  &
                        detj_at_w3,          &
                        ndf_w2v,             &
                        undf_w2v,            &
                        map_w2v,             &
+                       ndf_w3_2d,           &
+                       undf_w3_2d,          &
+                       map_w3_2d,           &
                        ndf_w2,              &
                        undf_w2,             &
                        map_w2,              &
@@ -241,12 +253,16 @@ contains
 
     call watkins_code( nlayers,             &
                        first_v_wind,        &
+                       watkins_failures,    &
                        wind,                &
                        dt,                  &
                        detj_at_w3,          &
                        ndf_w2v,             &
                        undf_w2v,            &
                        map_w2v,             &
+                       ndf_w3_2d,           &
+                       undf_w3_2d,          &
+                       map_w3_2d,           &
                        ndf_w2,              &
                        undf_w2,             &
                        map_w2,              &

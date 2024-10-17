@@ -37,6 +37,7 @@ contains
                                     vertical_sl_order_quintic,     &
                                     max_vert_cfl_calc_uniform,     &
                                     theta_variable_dry,            &
+                                    substep_transport_off,         &
                                     min_val_method_iterative,      &
                                     calculate_detj_upwind
     implicit none
@@ -49,6 +50,7 @@ contains
                                  fv_horizontal_order = 2,                                  &
                                  broken_w2_projection = .false.,                           &
                                  consistent_metric  = .false.,                             &
+                                 substep_transport = substep_transport_off,                &
                                  theta_dispersion_correction  = .false.,                   &
                                  oned_reconstruction = .false.,                            &
                                  cfl_mol_1d_stab = 1.0_r_def,                              &

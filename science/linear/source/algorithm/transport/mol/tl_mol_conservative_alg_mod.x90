@@ -99,7 +99,9 @@ module tl_mol_conservative_alg_mod
     mesh              => field%get_mesh()
     transport_runtime => get_transport_runtime(mesh)
     mesh_id           = field%get_mesh_id()
-    number_substeps   = transport_runtime%get_number_substeps(mesh_id,direction,transport_metadata%get_splitting())
+    number_substeps   = transport_runtime%get_number_mol_substeps( &
+                                               mesh_id, direction, &
+                                               transport_metadata%get_splitting())
     dt_substep        = transport_runtime%get_dt_substep(mesh_id,direction,transport_metadata%get_splitting())
     advecting_wind    => tl_transport_runtime%get_directional_advecting_wind(mesh_id,direction)
     ls_advecting_wind => transport_runtime%get_directional_advecting_wind(mesh_id,direction)

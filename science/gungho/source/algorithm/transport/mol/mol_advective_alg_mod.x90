@@ -74,7 +74,7 @@ contains
     mesh => field%get_mesh()
     transport_runtime => get_transport_runtime(mesh)
 
-    number_substeps = transport_runtime%get_number_substeps(mesh_id,direction,transport_metadata%get_splitting())
+    number_substeps = transport_runtime%get_number_mol_substeps(mesh_id,direction,transport_metadata%get_splitting())
     dt_substep      = transport_runtime%get_dt_substep(mesh_id,direction,transport_metadata%get_splitting())
     advecting_wind  => transport_runtime%get_directional_advecting_wind(mesh_id, direction)
 

@@ -73,7 +73,10 @@ module transport_runtime_alg_mod
                                             dep_pt_stencil_extent,   &
                                             ffsl_outer_order,        &
                                             ffsl_inner_order,        &
-                                            adjust_vhv_wind
+                                            adjust_vhv_wind,         &
+                                            substep_transport,       &
+                                            substep_transport_off,   &
+                                            substep_transport_adaptive
   use transport_enumerated_types_mod, only: scheme_split,         &
                                             direction_h,          &
                                             direction_v,          &
@@ -103,6 +106,7 @@ module transport_runtime_alg_mod
     integer(kind=i_def)                                       :: local_mesh_id
     integer(kind=i_def)                                       :: num_dry_steps
     integer(kind=i_def)                                       :: tracer_step_ctr
+    integer(kind=i_def)                                       :: substep_total_ctr
     integer(kind=i_def),        allocatable, dimension(:)     :: mesh_ids
     integer(kind=i_def),        allocatable, dimension(:)     :: dep_stencil_extent_xy
     integer(kind=i_def),        allocatable, dimension(:)     :: dep_stencil_extent_oxy
@@ -178,6 +182,7 @@ module transport_runtime_alg_mod
     type(integer_field_type)                                  :: remap_indices
     logical(kind=l_def)                                       :: computed_remapping
     logical(kind=l_def)                                       :: computed_dep_pt_idxs
+    integer(kind=i_def)                                       :: number_total_substeps
     integer(kind=i_def)                                       :: dry_config
     logical(kind=l_def)                                       :: dry_config_found
 
@@ -194,7 +199,8 @@ module transport_runtime_alg_mod
     procedure, public  :: restrict_dry_fields
     procedure, public  :: shift_dry_fields
     procedure, public  :: compute_consistent_quantities
-    procedure, public  :: get_number_substeps
+    procedure, public  :: get_number_total_substeps
+    procedure, public  :: get_number_mol_substeps
     procedure, public  :: get_dt_substep
     procedure, public  :: get_advecting_wind
     procedure, public  :: get_directional_advecting_wind
@@ -244,6 +250,9 @@ module transport_runtime_alg_mod
     procedure, public  :: get_tracer_step_ctr
     procedure, public  :: inc_tracer_step_ctr
     procedure, public  :: reset_tracer_step_ctr
+    procedure, public  :: get_substep_total_ctr
+    procedure, public  :: set_substep_total_ctr
+    procedure, public  :: get_substep_total_index
     procedure, public  :: remap_on_extended_mesh
     procedure, public  :: get_advective_flag
     procedure, public  :: get_no_mono_flag
@@ -287,6 +296,7 @@ contains
                                              compute_vert_cubic_coefficients_alg
     use ffsl_unity_transport_alg_mod,  only: ffsl_unity_transport_alg, &
                                              ffsl_unity_swift_alg
+    use substep_transport_alg_mod,     only: substep_transport_alg
     use split_w2_field_kernel_mod,     only: split_w2_field_kernel_type
     use transport_config_mod,          only: max_vert_cfl_calc,            &
                                              max_vert_cfl_calc_dep_point,  &
@@ -337,6 +347,7 @@ contains
     type(field_type),        pointer :: panel_id
     integer(kind=i_def)              :: mesh_idx, num_compute_meshes
     integer(kind=i_def)              :: n_steps, n_meshes, i_coef, step
+    integer(kind=i_def)              :: n_steps_with_substep, np1_steps_with_substep
     integer(kind=i_def)              :: stencil_extent_xy
     logical(kind=l_def)              :: cap_dep_points
     type(mesh_type),         pointer :: mesh => null()
@@ -366,6 +377,8 @@ contains
     logical(kind=l_def)              :: any_horz_dep_dist, any_vert_dep_dist
     logical(kind=l_def)              :: hermite_sl, vhv_split_sl
     logical(kind=l_def)              :: compute_cfl_dep
+    integer(kind=i_def)              :: watkins_fail, watkins_min
+    type(integer_field_type)         :: watkins_fail_field
     integer(kind=i_def)              :: remap_depth
 
     type(mesh_type),           pointer :: tmp_mesh => null()
@@ -469,6 +482,9 @@ contains
     !>
     self%model_clock => model_clock
     cast_dt = real( model_clock%get_seconds_per_step(), r_tran )
+
+    ! Set number of transport substeps to 1
+    self%number_total_substeps = 1_i_def
 
     mesh => primal_wind_n_rdef%get_mesh()
     local_mesh => mesh%get_local_mesh()
@@ -663,14 +679,37 @@ contains
                                               face_selector_ew,                         &
                                               face_selector_ns) )
 
+      ! Set number of Watkins failures to one so that substepping can be used
+      ! even if Watkins is switched off
+      watkins_fail = 1_i_def
       if (adjust_vhv_wind) then
         detj_at_w3 => get_detj_at_w3_r_tran(tmp_mesh%get_id())
+        call watkins_fail_field%initialise( w3_2d_fs )
         call invoke( watkins_kernel_type(self%adjusted_v_wind(mesh_idx,1),     &
+                                         watkins_fail_field,                   &
                                          self%advecting_wind(mesh_idx),        &
                                          cast_dt, detj_at_w3),                 &
                      X_minus_Y(self%adjusted_v_wind(mesh_idx,2),               &
                                self%vertical_advecting_wind(mesh_idx),         &
                                self%adjusted_v_wind(mesh_idx,1)) )
+        call get_field_minmax(watkins_fail_field, watkins_min, watkins_fail)
+      end if
+
+      !=======================================================================!
+      ! Determine if substepping is needed based on Lipschitz and
+      ! estimated departure points
+
+      if ( substep_transport /= substep_transport_off .AND. &
+           watkins_fail > 0_i_def                     .AND. &
+           mesh_idx == 1 ) then
+
+        ! call substep transport algorithm and get out number_total_substeps
+        call substep_transport_alg(self%number_total_substeps,     &
+                                   self%advecting_wind(mesh_idx),  &
+                                   cast_dt)
+        ! Set new transport time step
+        cast_dt = cast_dt / real(self%number_total_substeps, r_tran)
+
       end if
 
       !=======================================================================!
@@ -1097,32 +1136,73 @@ contains
       ! We allocate fields for the shifted mesh here
       n_meshes = self%n_meshes
       n_steps = self%num_dry_steps
-      allocate( self%rho_d(n_meshes, n_steps+1),                               &
-                self%dry_mass(n_meshes, n_steps+1),                            &
-                self%dry_mass_ffsl_x(n_meshes, n_steps),                       &
-                self%dry_mass_ffsl_y(n_meshes, n_steps),                       &
-                self%detj_unity(n_meshes, n_steps+1),                          &
-                self%detj_unity_x(n_meshes, n_steps),                          &
-                self%detj_unity_y(n_meshes, n_steps),                          &
-                self%flux(n_meshes, n_steps-1),                                &
-                self%dry_flux(n_meshes, n_steps),                              &
-                self%tracer_dep_dist_ixy(n_meshes, n_steps),                   &
-                self%tracer_dep_dist_oxy(n_meshes, n_steps),                   &
-                self%tracer_dep_dist_z(n_meshes, n_steps),                     &
-                self%unity_dep_dist_ixy(n_meshes, n_steps),                    &
-                self%unity_dep_dist_oxy(n_meshes, n_steps),                    &
-                self%unity_dep_dist_z(n_meshes, n_steps),                      &
-                self%unity_frac_wind_ixy(n_meshes, n_steps),                   &
-                self%unity_frac_wind_oxy(n_meshes, n_steps),                   &
-                self%unity_frac_wind_z(n_meshes, n_steps),                     &
-                self%dry_frac_flux_z(n_meshes, n_steps),                       &
-                self%dry_frac_flux_ixy(n_meshes, n_steps),                     &
-                self%dry_frac_flux_oxy(n_meshes, n_steps),                     &
-                self%tracer_stencil_extent_ixy(n_meshes, n_steps),             &
-                self%tracer_stencil_extent_oxy(n_meshes, n_steps),             &
-                self%unity_stencil_extent_ixy(n_meshes, n_steps),              &
-                self%unity_stencil_extent_oxy(n_meshes, n_steps)               &
+      n_steps_with_substep = self%number_total_substeps*n_steps
+      np1_steps_with_substep = self%number_total_substeps*(n_steps+1)
+      allocate( self%rho_d(n_meshes, np1_steps_with_substep),                   &
+                self%dry_mass(n_meshes, np1_steps_with_substep),                &
+                self%dry_mass_ffsl_x(n_meshes, n_steps_with_substep),           &
+                self%dry_mass_ffsl_y(n_meshes, n_steps_with_substep),           &
+                self%detj_unity(n_meshes, n_steps+1),                           &
+                self%detj_unity_x(n_meshes, n_steps),                           &
+                self%detj_unity_y(n_meshes, n_steps),                           &
+                self%flux(n_meshes, n_steps-1),                                 &
+                self%dry_flux(n_meshes, n_steps_with_substep),                  &
+                self%tracer_dep_dist_ixy(n_meshes, n_steps_with_substep),       &
+                self%tracer_dep_dist_oxy(n_meshes, n_steps_with_substep),       &
+                self%tracer_dep_dist_z(n_meshes, n_steps_with_substep),         &
+                self%unity_dep_dist_ixy(n_meshes, n_steps),                     &
+                self%unity_dep_dist_oxy(n_meshes, n_steps),                     &
+                self%unity_dep_dist_z(n_meshes, n_steps),                       &
+                self%unity_frac_wind_ixy(n_meshes, n_steps),                    &
+                self%unity_frac_wind_oxy(n_meshes, n_steps),                    &
+                self%unity_frac_wind_z(n_meshes, n_steps),                      &
+                self%dry_frac_flux_z(n_meshes, n_steps_with_substep),           &
+                self%dry_frac_flux_ixy(n_meshes, n_steps_with_substep),         &
+                self%dry_frac_flux_oxy(n_meshes, n_steps_with_substep),         &
+                self%tracer_stencil_extent_ixy(n_meshes, n_steps_with_substep), &
+                self%tracer_stencil_extent_oxy(n_meshes, n_steps_with_substep), &
+                self%unity_stencil_extent_ixy(n_meshes, n_steps),               &
+                self%unity_stencil_extent_oxy(n_meshes, n_steps)                &
       )
+      if ( subroutine_timers ) call timer('transport.runtime_allocate')
+    end if
+
+    if ( substep_transport == substep_transport_adaptive ) then
+      ! Need to deallocate and reallocate the fields that depend on substep
+      ! number as adaptive substep may change this between time steps
+      if ( subroutine_timers ) call timer('transport.runtime_allocate')
+      deallocate( self%rho_d,                     &
+                  self%dry_mass,                  &
+                  self%dry_mass_ffsl_x,           &
+                  self%dry_mass_ffsl_y,           &
+                  self%dry_flux,                  &
+                  self%tracer_dep_dist_ixy,       &
+                  self%tracer_dep_dist_oxy,       &
+                  self%tracer_dep_dist_z,         &
+                  self%dry_frac_flux_z,           &
+                  self%dry_frac_flux_ixy,         &
+                  self%dry_frac_flux_oxy,         &
+                  self%tracer_stencil_extent_ixy, &
+                  self%tracer_stencil_extent_oxy  &
+                )
+      n_meshes = self%n_meshes
+      n_steps = self%num_dry_steps
+      n_steps_with_substep = self%number_total_substeps*n_steps
+      np1_steps_with_substep = self%number_total_substeps*(n_steps+1)
+      allocate( self%rho_d(n_meshes, np1_steps_with_substep),                   &
+                self%dry_mass(n_meshes, np1_steps_with_substep),                &
+                self%dry_mass_ffsl_x(n_meshes, n_steps_with_substep),           &
+                self%dry_mass_ffsl_y(n_meshes, n_steps_with_substep),           &
+                self%dry_flux(n_meshes, n_steps_with_substep),                  &
+                self%tracer_dep_dist_ixy(n_meshes, n_steps_with_substep),       &
+                self%tracer_dep_dist_oxy(n_meshes, n_steps_with_substep),       &
+                self%tracer_dep_dist_z(n_meshes, n_steps_with_substep),         &
+                self%dry_frac_flux_z(n_meshes, n_steps_with_substep),           &
+                self%dry_frac_flux_ixy(n_meshes, n_steps_with_substep),         &
+                self%dry_frac_flux_oxy(n_meshes, n_steps_with_substep),         &
+                self%tracer_stencil_extent_ixy(n_meshes, n_steps_with_substep), &
+                self%tracer_stencil_extent_oxy(n_meshes, n_steps_with_substep)  &
+              )
       if ( subroutine_timers ) call timer('transport.runtime_allocate')
     end if
 
@@ -1316,8 +1396,9 @@ contains
       end do
     end if
 
-    ! Set step counter to be 1
+    ! Set step and sub step counters to be 1
     self%tracer_step_ctr = 1
+    self%substep_total_ctr = 1
 
     nullify(mesh, local_mesh, w2_fs, w3_fs, tmp_mesh, w2h_fs, w2v_fs, &
             w3_2d_fs, face_selector_ew, face_selector_ns)
@@ -1406,7 +1487,10 @@ contains
   !> @pre Fields passed to this routine must be on the prime extrusion mesh
   !> @param[in,out] self      The transport_runtime object
   !> @param[in]     dry_flux  Flux field used to transport dry density
-  !> @param[in]     step      The step to store the flux for
+  !> @param[in]     step      The step to store the flux for.
+  !!                          Note that if there is substepping then this
+  !!                          argument has the form
+  !!                          (substep-1) * n_step + step_number
   subroutine set_dry_flux(self, dry_flux, step)
 
     implicit none
@@ -1436,7 +1520,10 @@ contains
   !> @pre Fields passed to this routine must be on the prime extrusion mesh
   !> @param[in,out] self        The transport_runtime object
   !> @param[in]     rho_d       Dry density field
-  !> @param[in]     step        The step to store the dry density for
+  !> @param[in]     step        The step to store the dry density for.
+  !!                            Note that if there is substepping then this
+  !!                            argument has the form
+  !!                            (substep-1) * (n_step+1) + step_number
   subroutine set_rho_d(self, rho_d, step)
 
     implicit none
@@ -1505,7 +1592,10 @@ contains
   !> @pre Fields passed to this routine must be on the prime extrusion mesh
   !> @param[in,out] self        The transport_runtime object
   !> @param[in]     rho_d       Dry density field
-  !> @param[in]     step        The step to store the dry density for
+  !> @param[in]     step        The step to store the dry density for.
+  !!                            Note that if there is substepping then this
+  !!                            argument has the form
+  !!                            (substep-1) * n_step + step_number
   subroutine set_rho_d_ffsl_x(self, rho_d, step)
 
     implicit none
@@ -1560,7 +1650,10 @@ contains
   !> @pre Fields passed to this routine must be on the prime extrusion mesh
   !> @param[in,out] self        The transport_runtime object
   !> @param[in]     rho_d       Dry density field
-  !> @param[in]     step        The step to store the dry density for
+  !> @param[in]     step        The step to store the dry density for.
+  !!                            Note that if there is substepping then this
+  !!                            argument has the form
+  !!                            (substep-1) * n_step + step_number
   subroutine set_rho_d_ffsl_y(self, rho_d, step)
 
     implicit none
@@ -1641,6 +1734,20 @@ contains
 
   end subroutine set_flux
 
+  !> @brief Sets the transport substep counter
+  !> @param[in,out] self      The transport_runtime object
+  !> @param[in]     step_num  Which substep we are doing
+  subroutine set_substep_total_ctr(self, step_num)
+
+    implicit none
+
+    class(transport_runtime_type), target, intent(inout) :: self
+    integer(kind=i_def),                   intent(in)    :: step_num
+
+    self%substep_total_ctr = step_num
+
+  end subroutine set_substep_total_ctr
+
 ! ============================================================================ !
 ! DRY FIELD ROUTINES
 ! ============================================================================ !
@@ -1692,6 +1799,8 @@ contains
     integer(kind=i_def)                :: source_mesh_id
     integer(kind=i_def)                :: target_mesh_id
     integer(kind=i_def)                :: step, num_steps, fs_idx
+    integer(kind=i_def)                :: sub_step, num_sub_steps
+    integer(kind=i_def)                :: step_with_substep
     logical(kind=l_def)                :: any_hori_dep_dist
     integer(kind=i_def)                :: remap_depth
 
@@ -1718,173 +1827,197 @@ contains
     if (source_ncells > target_ncells) then
       ! Loop through fields for each step for prime extrusion
       num_steps = source_transport_runtime%get_num_dry_steps()
-      do step = 1, num_steps + 1
+      num_sub_steps = source_transport_runtime%get_number_total_substeps()
 
-        ! -------------------------------------------------------------------- !
-        ! rho_d and dry_mass
-        ! -------------------------------------------------------------------- !
-        ! Restrict densities conservatively
-        source_rho_d => source_transport_runtime%get_rho_d(source_mesh_id, step)
-        weights_w3 => get_intermesh_weights_w3_rtran(source_mesh, target_mesh)
-        w3_fs => function_space_collection%get_fs(target_mesh, 0, W3)
+      do sub_step = 1, num_sub_steps
+        do step = 1, num_steps + 1
 
-        if (.not. self%rho_d(1,step)%is_initialised()) then
-          call self%rho_d(1,step)%initialise( vector_space = w3_fs, &
-                                              halo_depth=target_mesh%get_halo_depth() )
-          call self%dry_mass(1,step)%initialise( vector_space = w3_fs, &
-                                                 halo_depth=target_mesh%get_halo_depth() )
-        end if
-
-        if (extended_mesh) then
-          ! TODO: we should be able to get away with not doing all of these
-          ! remappings, based on the direction and last step
-          ! Need to remap on the ext. mesh, and make rho and mass consistent
-          ! Restrict rho, remap, and then calculate mass
+          ! ------------------------------------------------------------------ !
+          ! rho_d and dry_mass
+          ! ------------------------------------------------------------------ !
+          ! Restrict densities conservatively
+          step_with_substep = (sub_step - 1) * (num_steps + 1) + step
+          source_rho_d => source_transport_runtime%get_rho_d(source_mesh_id, &
+                                                             step_with_substep)
           weights_w3 => get_intermesh_weights_w3_rtran(source_mesh, target_mesh)
-          source_rho_d => source_transport_runtime%get_rho_d(source_mesh_id, step)
-          if ( check_any_horizontal_method_mol() ) then
-            remap_depth = get_required_stencil_depth()
-          else
+          w3_fs => function_space_collection%get_fs(target_mesh, 0, W3)
+
+          if (.not. self%rho_d(1,step_with_substep)%is_initialised()) then
+            call self%rho_d(1,step_with_substep)%initialise(  &
+                                        vector_space = w3_fs, &
+                                        halo_depth=target_mesh%get_halo_depth() )
+            call self%dry_mass(1,step_with_substep)%initialise( &
+                                        vector_space = w3_fs,   &
+                                        halo_depth=target_mesh%get_halo_depth() )
+          end if
+
+          if (extended_mesh) then
             ! TODO: we should be able to get away with not doing all of these
             ! remappings, based on the direction and last step
-            ! Restrict, then remap
-            remap_depth = self%get_dep_stencil_extent_xy(self%mesh_ids(1), .false.) &
-                        + 2_i_def + max(ffsl_inner_order, ffsl_outer_order)
-          end if
-          ! Restrict and remap rho
-          call tmp_rho_d%initialise( vector_space = w3_fs, &
-                                     halo_depth=target_mesh%get_halo_depth() )
-          call invoke( restrict_scalar_weighted_kernel_type(tmp_rho_d,         &
-                                                            source_rho_d,      &
-                                                            weights_w3) )
-          call self%remap_on_extended_mesh(self%rho_d(1,step), tmp_rho_d,      &
-                                           self%rho_monotone_remap,            &
-                                           self%rho_enforce_minvalue,          &
-                                           self%rho_minvalue, remap_depth)
-          ! Now compute mass by multiplying remapped field by det(J)
-          ! @todo #4302: replace this with redundant computation
-          call invoke_deep_X_times_Y(self%dry_mass(1,step),                    &
-                                     self%rho_d(1,step),                       &
-                                     target_detj)
-        else
-          ! Can restrict mass and then obtain density through division
-          source_dry_mass => source_transport_runtime%get_dry_mass(source_mesh_id, step)
-          call invoke( restrict_mass_w3_kernel_type(self%dry_mass(1,step),     &
-                                                    source_dry_mass),          &
-                       X_divideby_Y(self%rho_d(1,step), self%dry_mass(1,step), &
-                                    target_detj) )
-        end if
-
-        ! -------------------------------------------------------------------- !
-        ! dry_mass_ffsl: only used with FFSL and only for number of dry steps
-        ! -------------------------------------------------------------------- !
-        any_hori_dep_dist = check_horz_dep_pts()
-        if ( any_hori_dep_dist .and. step < num_steps + 1 ) then
-          if ( source_transport_runtime%dry_mass_ffsl_x(1,step)%is_initialised() ) then
-            source_dry_mass_ffsl_x => source_transport_runtime%get_dry_mass_ffsl_x(source_mesh_id, step)
-            source_dry_mass_ffsl_y => source_transport_runtime%get_dry_mass_ffsl_y(source_mesh_id, step)
-
-            if (.not. self%dry_mass_ffsl_x(1,step)%is_initialised()) then
-              call self%dry_mass_ffsl_x(1,step)%initialise( vector_space = w3_fs, &
-                                                            halo_depth=target_mesh%get_halo_depth() )
-              call self%dry_mass_ffsl_y(1,step)%initialise( vector_space = w3_fs, &
-                                                            halo_depth=target_mesh%get_halo_depth() )
-            end if
-
-            call source_rho_ffsl%initialise( source_dry_mass_ffsl_x%get_function_space(), &
-                                             halo_depth=source_mesh%get_halo_depth() )
-            call target_rho_ffsl%initialise( w3_fs, &
-                                             halo_depth=target_mesh%get_halo_depth() )
-
-            if (extended_mesh) then
-              ! As this will be used for computing departure distances, compute to
-              ! full stencil depth
+            ! Need to remap on the ext. mesh, and make rho and mass consistent
+            ! Restrict rho, remap, and then calculate mass
+            weights_w3 => get_intermesh_weights_w3_rtran(source_mesh, target_mesh)
+            source_rho_d => source_transport_runtime%get_rho_d(source_mesh_id, &
+                                                               step_with_substep)
+            if ( check_any_horizontal_method_mol() ) then
               remap_depth = get_required_stencil_depth()
-
-              ! Restrict and remap rho
-              call invoke( X_divideby_Y(source_rho_ffsl,                       &
-                                        source_dry_mass_ffsl_x, source_detj),  &
-                           restrict_scalar_weighted_kernel_type(               &
-                                                    tmp_rho_d,                 &
-                                                    source_rho_ffsl,           &
-                                                    weights_w3) )
-              call self%remap_on_extended_mesh(target_rho_ffsl,                &
-                                               tmp_rho_d,                      &
-                                               self%rho_monotone_remap,        &
-                                               self%rho_enforce_minvalue,      &
-                                               self%rho_minvalue, remap_depth)
-              ! @todo #4302: replace this with redundant computation
-              call invoke_deep_X_times_Y(self%dry_mass_ffsl_x(1, step),        &
-                                         target_rho_ffsl,                      &
-                                         target_detj)
-              call invoke( X_divideby_Y(source_rho_ffsl,                       &
-                                        source_dry_mass_ffsl_y, source_detj),  &
-                           restrict_scalar_weighted_kernel_type(               &
-                                                    tmp_rho_d,                 &
-                                                    source_rho_ffsl,           &
-                                                    weights_w3) )
-              call self%remap_on_extended_mesh(target_rho_ffsl,                &
-                                               tmp_rho_d,                      &
-                                               self%rho_monotone_remap,        &
-                                               self%rho_enforce_minvalue,      &
-                                               self%rho_minvalue, remap_depth)
-              ! Now remap mass
-              ! @todo #4302: replace this with redundant computation
-              call invoke_deep_X_times_Y(self%dry_mass_ffsl_y(1, step),        &
-                                         target_rho_ffsl,                      &
-                                         target_detj)
-
             else
-              ! Can restrict straight into mass fields fields
-              call invoke( restrict_mass_w3_kernel_type(                       &
-                                                self%dry_mass_ffsl_x(1, step), &
-                                                source_dry_mass_ffsl_x),       &
-                           restrict_mass_w3_kernel_type(                       &
-                                                self%dry_mass_ffsl_y(1, step), &
-                                                source_dry_mass_ffsl_y) )
+              ! TODO: we should be able to get away with not doing all of these
+              ! remappings, based on the direction and last step
+              ! Restrict, then remap
+              remap_depth = self%get_dep_stencil_extent_xy(self%mesh_ids(1), .false.) &
+                          + 2_i_def + max(ffsl_inner_order, ffsl_outer_order)
+            end if
+            ! Restrict and remap rho
+            call tmp_rho_d%initialise( vector_space = w3_fs,                   &
+                                       halo_depth=target_mesh%get_halo_depth() )
+            call invoke( restrict_scalar_weighted_kernel_type(tmp_rho_d,       &
+                                                              source_rho_d,    &
+                                                              weights_w3) )
+            call self%remap_on_extended_mesh(self%rho_d(1,step_with_substep),  &
+                                             tmp_rho_d,                        &
+                                             self%rho_monotone_remap,          &
+                                             self%rho_enforce_minvalue,        &
+                                             self%rho_minvalue, remap_depth)
+            ! Now compute mass by multiplying remapped field by det(J)
+            ! @todo #4302: replace this with redundant computation
+            call invoke_deep_X_times_Y(self%dry_mass(1,step_with_substep),     &
+                                       self%rho_d(1,step_with_substep),        &
+                                       target_detj)
+          else
+            ! Can restrict mass and then obtain density through division
+            source_dry_mass => source_transport_runtime%get_dry_mass(          &
+                                                             source_mesh_id,   &
+                                                             step_with_substep)
+            call invoke( restrict_mass_w3_kernel_type(                         &
+                                      self%dry_mass(1,step_with_substep),      &
+                                      source_dry_mass),                        &
+                         X_divideby_Y(self%rho_d(1,step_with_substep),         &
+                                      self%dry_mass(1,step_with_substep),      &
+                                      target_detj) )
+          end if
 
+          ! ------------------------------------------------------------------ !
+          ! dry_mass_ffsl: only used with FFSL and only for number of dry steps
+          ! ------------------------------------------------------------------ !
+          any_hori_dep_dist = check_horz_dep_pts()
+          if ( any_hori_dep_dist .and. step < num_steps + 1 ) then
+            step_with_substep = (sub_step - 1) * num_steps + step
+            if ( source_transport_runtime%dry_mass_ffsl_x(1,step)%is_initialised() ) then
+              source_dry_mass_ffsl_x => source_transport_runtime%get_dry_mass_ffsl_x( &
+                                                    source_mesh_id, step_with_substep)
+              source_dry_mass_ffsl_y => source_transport_runtime%get_dry_mass_ffsl_y( &
+                                                    source_mesh_id, step_with_substep)
+
+              if (.not. self%dry_mass_ffsl_x(1,step_with_substep)%is_initialised()) then
+                call self%dry_mass_ffsl_x(1,step_with_substep)%initialise(     &
+                                                vector_space = w3_fs,          &
+                                                halo_depth=target_mesh%get_halo_depth() )
+                call self%dry_mass_ffsl_y(1,step_with_substep)%initialise(     &
+                                                vector_space = w3_fs,          &
+                                                halo_depth=target_mesh%get_halo_depth() )
+              end if
+
+              call source_rho_ffsl%initialise(                                 &
+                              source_dry_mass_ffsl_x%get_function_space(),     &
+                              halo_depth=source_mesh%get_halo_depth() )
+              call target_rho_ffsl%initialise(                                 &
+                              w3_fs,                                           &
+                              halo_depth=target_mesh%get_halo_depth() )
+
+              if (extended_mesh) then
+                ! As this will be used for computing departure distances,
+                ! compute to full stencil depth
+                remap_depth = get_required_stencil_depth()
+
+                ! Restrict and remap rho
+                call invoke( X_divideby_Y(source_rho_ffsl,                      &
+                                          source_dry_mass_ffsl_x, source_detj), &
+                             restrict_scalar_weighted_kernel_type(              &
+                                                      tmp_rho_d,                &
+                                                      source_rho_ffsl,          &
+                                                      weights_w3) )
+                call self%remap_on_extended_mesh(target_rho_ffsl,               &
+                                                 tmp_rho_d,                     &
+                                                 self%rho_monotone_remap,       &
+                                                 self%rho_enforce_minvalue,     &
+                                                 self%rho_minvalue, remap_depth)
+                ! @todo #4302: replace this with redundant computation
+                call invoke_deep_X_times_Y(                                      &
+                                     self%dry_mass_ffsl_x(1, step_with_substep), &
+                                     target_rho_ffsl,                            &
+                                     target_detj)
+                call invoke( X_divideby_Y(source_rho_ffsl,                       &
+                                          source_dry_mass_ffsl_y, source_detj),  &
+                             restrict_scalar_weighted_kernel_type(               &
+                                                      tmp_rho_d,                 &
+                                                      source_rho_ffsl,           &
+                                                      weights_w3) )
+                call self%remap_on_extended_mesh(target_rho_ffsl,                &
+                                                 tmp_rho_d,                      &
+                                                 self%rho_monotone_remap,        &
+                                                 self%rho_enforce_minvalue,      &
+                                                 self%rho_minvalue, remap_depth)
+                ! Now remap mass
+                ! @todo #4302: replace this with redundant computation
+                call invoke_deep_X_times_Y(                                      &
+                                     self%dry_mass_ffsl_y(1, step_with_substep), &
+                                     target_rho_ffsl,                            &
+                                     target_detj)
+
+              else
+                ! Can restrict straight into mass fields fields
+                call invoke( restrict_mass_w3_kernel_type(                       &
+                                     self%dry_mass_ffsl_x(1, step_with_substep), &
+                                     source_dry_mass_ffsl_x),                    &
+                             restrict_mass_w3_kernel_type(                       &
+                                     self%dry_mass_ffsl_y(1, step_with_substep), &
+                                     source_dry_mass_ffsl_y) )
+
+              end if
             end if
           end if
-        end if
 
-        ! -------------------------------------------------------------------- !
-        ! dry_flux: kernel depends on the direction
-        ! -------------------------------------------------------------------- !
-        if ( step < num_steps + 1 ) then
+          ! ------------------------------------------------------------------ !
+          ! dry_flux: kernel depends on the direction
+          ! ------------------------------------------------------------------ !
+          if ( step < num_steps + 1 ) then
 
-          source_dry_flux => source_transport_runtime%get_dry_flux(source_mesh_id, step)
+            step_with_substep = (sub_step - 1) * num_steps + step
+            source_dry_flux => source_transport_runtime%get_dry_flux(source_mesh_id, step_with_substep)
 
-          fs_idx = source_dry_flux%which_function_space()
-          if (.not. self%dry_flux(1,step)%is_initialised()) then
-            w2_fs => function_space_collection%get_fs(target_mesh, 0, fs_idx)
-            call self%dry_flux(1,step)%initialise( vector_space = w2_fs )
-          end if
+            fs_idx = source_dry_flux%which_function_space()
+            if (.not. self%dry_flux(1,step_with_substep)%is_initialised()) then
+              w2_fs => function_space_collection%get_fs(target_mesh, 0, fs_idx)
+              call self%dry_flux(1,step_with_substep)%initialise( vector_space = w2_fs )
+            end if
 
-          ! Restrict flux, which depends on split direction
-          select case ( source_dry_flux%which_function_space() )
-          case ( W2 )
-            call invoke(                                                       &
-                restrict_w2_kernel_type(self%dry_flux(1,step),                 &
-                                        source_dry_flux,                       &
-                                        face_selector_ew,                      &
-                                        face_selector_ns) )
-          case ( W2H )
-            call invoke(                                                       &
-                restrict_w2h_kernel_type(self%dry_flux(1,step),                &
-                                         source_dry_flux,                     &
-                                         face_selector_ew,                     &
-                                         face_selector_ns) )
-          case ( W2V )
-            call invoke(                                                       &
-                restrict_w2v_kernel_type(self%dry_flux(1,step), source_dry_flux) )
-          case default
-            call log_event('Dry flux space not recognised', LOG_LEVEL_ERROR)
-          end select
-        end if  ! step is valid for dry flux
+            ! Restrict flux, which depends on split direction
+            select case ( source_dry_flux%which_function_space() )
+            case ( W2 )
+              call invoke(                                                     &
+                  restrict_w2_kernel_type(self%dry_flux(1,step_with_substep),  &
+                                          source_dry_flux,                     &
+                                          face_selector_ew,                    &
+                                          face_selector_ns) )
+            case ( W2H )
+              call invoke(                                                     &
+                  restrict_w2h_kernel_type(self%dry_flux(1,step_with_substep), &
+                                           source_dry_flux,                    &
+                                           face_selector_ew,                   &
+                                           face_selector_ns) )
+            case ( W2V )
+              call invoke(                                                     &
+                  restrict_w2v_kernel_type(self%dry_flux(1,step_with_substep), source_dry_flux) )
+            case default
+              call log_event('Dry flux space not recognised', LOG_LEVEL_ERROR)
+            end select
+          end if  ! step is valid for dry flux
 
-      end do  ! loop through steps
+        end do  ! loop through steps
+      end do  ! loop through transport sub steps
     else
-      call log_event( 'Can only call restrict_dry_fields when ' // &
+      call log_event( 'Can only call restrict_dry_fields when ' //             &
                       'target mesh is coarser than source mesh', LOG_LEVEL_ERROR)
     end if
 
@@ -1924,6 +2057,9 @@ contains
     type(function_space_type), pointer :: w3_fs => null()
     type(function_space_type), pointer :: w2_fs => null()
     logical(kind=l_def)                :: any_hori_dep_dist
+    integer(kind=i_def)                :: num_steps
+    integer(kind=i_def)                :: sub_step, num_sub_steps
+    integer(kind=i_def)                :: step_with_substep
 
     if ( subroutine_timers ) call timer('transport.runtime_shift')
 
@@ -1941,111 +2077,129 @@ contains
       face_selector_ew => get_face_selector_ew(prime_mesh_id)
       face_selector_ns => get_face_selector_ns(prime_mesh_id)
 
-      do step = 1, self%num_dry_steps + 1
+      num_steps = self%num_dry_steps
+      num_sub_steps = self%number_total_substeps
 
-        ! -------------------------------------------------------------------- !
-        ! rho_d and dry_mass
-        ! -------------------------------------------------------------------- !
-        if (.not. self%rho_d(2,step)%is_initialised()) then
-          call self%rho_d(2,step)%initialise( vector_space = w3_fs, &
-                                 halo_depth=shifted_mesh%get_halo_depth() )
-          call self%dry_mass(2,step)%initialise( vector_space = w3_fs, &
-                                 halo_depth=shifted_mesh%get_halo_depth() )
-        end if
+      do sub_step = 1, num_sub_steps
+        do step = 1, num_steps + 1
 
-        if (extended_mesh) then
-          ! Original field has already been remapped, so can perform a "deep"
-          ! shift on the original field to get the shifted, remapped density
-          ! @todo #4302: replace this with redundant computation
-          call invoke_deep_shift_mass(self%dry_mass(2,step),                   &
-                                      self%dry_mass(1,step))
-          call invoke_deep_X_divideby_Y(self%rho_d(2,step),                    &
-                                        self%dry_mass(2,step),                 &
-                                        detj_shifted)
-        else
-          ! Can directly shift mass, then obtain rho by dividing by volume
-          call invoke( shift_mass_w3_kernel_type(self%dry_mass(2,step),        &
-                                                 self%dry_mass(1,step)),       &
-                       X_divideby_Y(self%rho_d(2,step), self%dry_mass(2,step), &
-                                    detj_shifted) )
-        end if
-
-        ! -------------------------------------------------------------------- !
-        ! dry_mass_ffsl: only used with FFSL and only for number of dry steps
-        ! -------------------------------------------------------------------- !
-        if ( any_hori_dep_dist .and. step < self%num_dry_steps + 1 ) then
-          if ( self%dry_mass_ffsl_x(1,step)%is_initialised() ) then
-            if (.not. self%dry_mass_ffsl_x(2,step)%is_initialised()) then
-              call self%dry_mass_ffsl_x(2,step)%initialise( vector_space = w3_fs, &
-                                        halo_depth=shifted_mesh%get_halo_depth() )
-              call self%dry_mass_ffsl_y(2,step)%initialise( vector_space = w3_fs, &
-                                        halo_depth=shifted_mesh%get_halo_depth() )
-            end if
-
-            call rho_d_prime%initialise( self%dry_mass_ffsl_x(1,step)%get_function_space(), &
-                                         halo_depth=prime_extrusion_mesh%get_halo_depth() )
-            call rho_d_shifted%initialise( w3_fs, &
-                                         halo_depth=shifted_mesh%get_halo_depth() )
-
-            if (extended_mesh) then
-              ! Mass should already correspond to remapped density
-              ! Rather than remapping, perform deep shifting of mass into halos
-              ! @todo #4302: replace this with redundant computation
-              call invoke_deep_shift_mass(self%dry_mass_ffsl_x(2,step),        &
-                                          self%dry_mass_ffsl_x(1,step))
-              call invoke_deep_shift_mass(self%dry_mass_ffsl_y(2,step),        &
-                                          self%dry_mass_ffsl_y(1,step))
-
-            else
-              ! Can just directly shift mass
-              call invoke( shift_mass_w3_kernel_type(                          &
-                                               self%dry_mass_ffsl_x(2,step),   &
-                                               self%dry_mass_ffsl_x(1,step)),  &
-                           shift_mass_w3_kernel_type(                          &
-                                               self%dry_mass_ffsl_y(2,step),   &
-                                               self%dry_mass_ffsl_y(1,step)) )
-            end if
-          end if
-        end if
-
-
-        ! -------------------------------------------------------------------- !
-        ! dry_flux: kernel depends on the direction
-        ! -------------------------------------------------------------------- !
-        if ( step < self%num_dry_steps + 1 ) then
-          ! Transform dry fluxes to the shifted mesh, with case depending on fs_idx
-          fs_idx = self%dry_flux(1,step)%which_function_space()
-
-          if (.not. self%dry_flux(2,step)%is_initialised()) then
-            w2_fs => function_space_collection%get_fs(shifted_mesh, 0, fs_idx)
-            call self%dry_flux(2,step)%initialise( vector_space = w2_fs )
+          ! ------------------------------------------------------------------ !
+          ! rho_d and dry_mass
+          ! ------------------------------------------------------------------ !
+          step_with_substep = (sub_step - 1) * (num_steps+1) + step
+          if (.not. self%rho_d(2,step_with_substep)%is_initialised()) then
+            call self%rho_d(2,step_with_substep)%initialise(                   &
+                                     vector_space = w3_fs,                     &
+                                     halo_depth=shifted_mesh%get_halo_depth() )
+            call self%dry_mass(2,step_with_substep)%initialise(                &
+                                     vector_space = w3_fs,                     &
+                                     halo_depth=shifted_mesh%get_halo_depth() )
           end if
 
-          select case (fs_idx)
-          case (W2)
-            call invoke(                                              &
-              setval_c(self%dry_flux(2,step), 0.0_r_tran),            &
-              consist_w2_to_sh_w2_kernel_type(self%dry_flux(2,step),  &
-                                              self%dry_flux(1,step),  &
-                                              face_selector_ew,       &
-                                              face_selector_ns) )
-          case (W2h)
-            call invoke(                                               &
-              setval_c(self%dry_flux(2,step), 0.0_r_tran),             &
-              consist_w2h_to_sh_w2h_kernel_type(self%dry_flux(2,step), &
-                                                self%dry_flux(1,step), &
-                                                face_selector_ew,      &
-                                                face_selector_ns) )
-          case (W2v)
-            call invoke(                                               &
-              consist_w2v_to_sh_w2v_kernel_type(self%dry_flux(2,step), &
-                                                self%dry_flux(1,step)) )
-          case default
-            call log_event( "Can only store dry flux for W2, W2h and W2v spaces", LOG_LEVEL_ERROR )
-          end select
-        end if  ! step is valid for dry flux
+          if (extended_mesh) then
+            ! Original field has already been remapped, so can perform a "deep"
+            ! shift on the original field to get the shifted, remapped density
+            ! @todo #4302: replace this with redundant computation
+            call invoke_deep_shift_mass(self%dry_mass(2,step_with_substep),    &
+                                        self%dry_mass(1,step_with_substep))
+            call invoke_deep_X_divideby_Y(self%rho_d(2,step_with_substep),     &
+                                          self%dry_mass(2,step_with_substep),  &
+                                          detj_shifted)
+          else
+            ! Can directly shift mass, then obtain rho by dividing by volume
+            call invoke( shift_mass_w3_kernel_type(                            &
+                                          self%dry_mass(2,step_with_substep),  &
+                                          self%dry_mass(1,step_with_substep)), &
+                         X_divideby_Y(self%rho_d(2,step_with_substep),         &
+                                      self%dry_mass(2,step_with_substep),      &
+                                      detj_shifted) )
+          end if
 
-      end do  ! loop through steps
+          ! ------------------------------------------------------------------ !
+          ! dry_mass_ffsl: only used with FFSL and only for number of dry steps
+          ! ------------------------------------------------------------------ !
+          if ( any_hori_dep_dist .and. step < self%num_dry_steps + 1 ) then
+            step_with_substep = (sub_step - 1) * num_steps + step
+            if ( self%dry_mass_ffsl_x(1,step_with_substep)%is_initialised() ) then
+              if (.not. self%dry_mass_ffsl_x(2,step_with_substep)%is_initialised()) then
+                call self%dry_mass_ffsl_x(2,step_with_substep)%initialise(     &
+                                          vector_space = w3_fs,                &
+                                          halo_depth=shifted_mesh%get_halo_depth() )
+                call self%dry_mass_ffsl_y(2,step_with_substep)%initialise(     &
+                                          vector_space = w3_fs,                &
+                                          halo_depth=shifted_mesh%get_halo_depth() )
+              end if
+
+              call rho_d_prime%initialise( self%dry_mass_ffsl_x(1,step_with_substep)%get_function_space(), &
+                                           halo_depth=prime_extrusion_mesh%get_halo_depth() )
+              call rho_d_shifted%initialise( w3_fs, &
+                                           halo_depth=shifted_mesh%get_halo_depth() )
+
+              if (extended_mesh) then
+                ! Mass should already correspond to remapped density
+                ! Rather than remapping, perform deep shifting of mass into halos
+                ! @todo #4302: replace this with redundant computation
+                call invoke_deep_shift_mass(                                   &
+                                    self%dry_mass_ffsl_x(2,step_with_substep), &
+                                    self%dry_mass_ffsl_x(1,step_with_substep))
+                call invoke_deep_shift_mass(                                   &
+                                    self%dry_mass_ffsl_y(2,step_with_substep), &
+                                    self%dry_mass_ffsl_y(1,step_with_substep))
+
+              else
+                ! Can just directly shift mass
+                call invoke( shift_mass_w3_kernel_type(                        &
+                                   self%dry_mass_ffsl_x(2,step_with_substep),  &
+                                   self%dry_mass_ffsl_x(1,step_with_substep)), &
+                             shift_mass_w3_kernel_type(                        &
+                                   self%dry_mass_ffsl_y(2,step_with_substep),  &
+                                   self%dry_mass_ffsl_y(1,step_with_substep)) )
+              end if
+            end if
+          end if
+
+          ! ------------------------------------------------------------------ !
+          ! dry_flux: kernel depends on the direction
+          ! ------------------------------------------------------------------ !
+          if ( step < self%num_dry_steps + 1 ) then
+            step_with_substep = (sub_step - 1) * num_steps + step
+            ! Transform dry fluxes to the shifted mesh, with case depending on fs_idx
+            fs_idx = self%dry_flux(1,step_with_substep)%which_function_space()
+
+            if (.not. self%dry_flux(2,step_with_substep)%is_initialised()) then
+              w2_fs => function_space_collection%get_fs(shifted_mesh, 0, fs_idx)
+              call self%dry_flux(2,step_with_substep)%initialise( vector_space = w2_fs )
+            end if
+
+            select case (fs_idx)
+            case (W2)
+              call invoke(                                                     &
+                setval_c(self%dry_flux(2,step_with_substep), 0.0_r_tran),      &
+                consist_w2_to_sh_w2_kernel_type(                               &
+                                           self%dry_flux(2,step_with_substep), &
+                                           self%dry_flux(1,step_with_substep), &
+                                           face_selector_ew,                   &
+                                           face_selector_ns) )
+            case (W2h)
+              call invoke(                                                     &
+                setval_c(self%dry_flux(2,step_with_substep), 0.0_r_tran),      &
+                consist_w2h_to_sh_w2h_kernel_type(                             &
+                                           self%dry_flux(2,step_with_substep), &
+                                           self%dry_flux(1,step_with_substep), &
+                                           face_selector_ew,                   &
+                                           face_selector_ns) )
+            case (W2v)
+              call invoke(                                                     &
+                consist_w2v_to_sh_w2v_kernel_type(                             &
+                                           self%dry_flux(2,step_with_substep), &
+                                           self%dry_flux(1,step_with_substep)) )
+            case default
+              call log_event( "Can only store dry flux for W2, W2h and W2v spaces", LOG_LEVEL_ERROR )
+            end select
+          end if  ! step is valid for dry flux
+
+        end do  ! loop through steps
+      end do  ! loop through transport sub steps
     end if  ! there is a shifted mesh
 
     nullify( prime_extrusion_mesh, shifted_mesh, detj_shifted, detj_prime, &
@@ -2079,6 +2233,10 @@ contains
     integer(kind=i_def)                :: function_space
     integer(kind=i_def)                :: stencil_extent
     integer(kind=i_def)                :: max_stencil_extent
+    integer(kind=i_def)                :: num_steps
+    integer(kind=i_def)                :: sub_step, num_sub_steps
+    integer(kind=i_def)                :: step_with_substep
+    integer(kind=i_def)                :: step_p1_with_substep
     real(kind=r_tran)                  :: dep_min, dep_max
     type(mesh_type),           pointer :: twod_mesh => null()
     type(function_space_type), pointer :: w2_fs => null()
@@ -2115,131 +2273,145 @@ contains
       face_selector_ew => get_face_selector_ew(mesh_id)
       face_selector_ns => get_face_selector_ns(mesh_id)
 
-      do step = 1, self%num_dry_steps
+      num_steps = self%num_dry_steps
+      num_sub_steps = self%number_total_substeps
 
-        dry_mass => self%get_dry_mass(mesh_id, step)
-        dry_mass_copy => self%get_dry_mass(mesh_id, step)
-        dry_flux => self%get_dry_flux(mesh_id, step)
-        ! Check that mass isn't negative
-        write(field_name, '(A,I4)') 'dry_mass', step
-        call self%check_negative_field(dry_mass, field_name)
+      do sub_step = 1, num_sub_steps
+        do step = 1, num_steps
 
-        ! Determine direction of step from function space
-        function_space = dry_flux%which_function_space()
-        stencil_extent = dep_pt_stencil_extent
+          step_p1_with_substep = (sub_step - 1) * (num_steps+1) + step
+          dry_mass => self%get_dry_mass(mesh_id, step_p1_with_substep)
+          dry_mass_copy => self%get_dry_mass(mesh_id, step_p1_with_substep)
+          step_with_substep = (sub_step - 1) * num_steps + step
+          dry_flux => self%get_dry_flux(mesh_id, step_with_substep)
+          ! Check that mass isn't negative
+          write(field_name, '(A,I4)') 'dry_mass', step
+          call self%check_negative_field(dry_mass, field_name)
 
-        ! -------------------------------------------------------------------- !
-        ! Vertical step
-        ! -------------------------------------------------------------------- !
-        if (function_space == W2V .and. any_vert_dep_dist) then
-          if (.not. self%tracer_dep_dist_z(i,step)%is_initialised()) then
-            w2_fs => dry_flux%get_function_space()
-            call self%tracer_dep_dist_z(i,step)%initialise( w2_fs )
-            call self%dry_frac_flux_z(i,step)%initialise( w2_fs )
-          end if
+          ! Determine direction of step from function space
+          function_space = dry_flux%which_function_space()
+          stencil_extent = dep_pt_stencil_extent
 
-          call invoke( vert_dep_dist_ffsl_kernel_type(                         &
-                                          self%tracer_dep_dist_z(i,step),      &
-                                          self%dry_frac_flux_z(i,step),        &
-                                          dry_flux,                            &
-                                          dry_mass) )
+          ! ------------------------------------------------------------------ !
+          ! Vertical step
+          ! ------------------------------------------------------------------ !
+          if (function_space == W2V .and. any_vert_dep_dist) then
+            if (.not. self%tracer_dep_dist_z(i,step_with_substep)%is_initialised()) then
+              w2_fs => dry_flux%get_function_space()
+              call self%tracer_dep_dist_z(i,step_with_substep)%initialise( w2_fs )
+              call self%dry_frac_flux_z(i,step_with_substep)%initialise( w2_fs )
+            end if
 
-          call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_z', &
-                                self%tracer_dep_dist_z(i,step))
-        ! -------------------------------------------------------------------- !
-        ! Horizontal step
-        ! -------------------------------------------------------------------- !
-        else if (function_space == W2H .and. any_hori_dep_dist) then
+            call invoke( vert_dep_dist_ffsl_kernel_type(                       &
+                                  self%tracer_dep_dist_z(i,step_with_substep), &
+                                  self%dry_frac_flux_z(i,step_with_substep),   &
+                                  dry_flux,                                    &
+                                  dry_mass) )
 
-          cap_dep_points = (horizontal_limit == horizontal_limit_cap)
+            call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_z',        &
+                                  self%tracer_dep_dist_z(i,step_with_substep))
+          ! ------------------------------------------------------------------ !
+          ! Horizontal step
+          ! ------------------------------------------------------------------ !
+          else if (function_space == W2H .and. any_hori_dep_dist) then
 
-          ! Inner step quantities ----------------------------------------------
-          if (.not. self%tracer_dep_dist_ixy(i,step)%is_initialised()) then
-            w2_fs => dry_flux%get_function_space()
-            twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
-            w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, W3)
-            call self%tracer_dep_dist_ixy(i,step)%initialise( w2_fs )
-            call self%dry_frac_flux_ixy(i,step)%initialise( w2_fs )
-          end if
+            cap_dep_points = (horizontal_limit == horizontal_limit_cap)
 
-          ! Compute tracer departure points
-          call invoke(                                                         &
-                  setval_c(self%tracer_dep_dist_ixy(i,step), 0.0_r_tran),      &
-                  setval_c(self%dry_frac_flux_ixy(i,step), 0.0_r_tran),        &
-                  hori_dep_dist_ffsl_kernel_type(                              &
-                                          self%tracer_dep_dist_ixy(i,step),    &
-                                          self%dry_frac_flux_ixy(i,step),      &
-                                          dry_flux,                            &
-                                          dry_mass, stencil_extent,            &
-                                          dry_mass_copy, stencil_extent,       &
-                                          face_selector_ew,                    &
-                                          face_selector_ns,                    &
-                                          dep_pt_stencil_extent,               &
-                                          cap_dep_points) )
-
-          ! Get the required stencil size from the departure points
-          call get_field_minmax(self%tracer_dep_dist_ixy(i,step), dep_min, dep_max)
-          self%tracer_stencil_extent_ixy(i,step) = &
-            MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
-
-          call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_ixy', &
-                                self%tracer_dep_dist_ixy(i,step))
-
-          ! Outer step quantities ----------------------------------------------
-          ! Determine if outer fields needed from initialisation of dry_mass_ffsl
-          if (any_consistent_swift) then
-            if (.not. self%tracer_dep_dist_oxy(i,step)%is_initialised()) then
+            ! Inner step quantities ----------------------------------------------
+            if (.not. self%tracer_dep_dist_ixy(i,step_with_substep)%is_initialised()) then
               w2_fs => dry_flux%get_function_space()
               twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
               w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, W3)
-              call self%tracer_dep_dist_oxy(i,step)%initialise( w2_fs )
-              call self%dry_frac_flux_oxy(i,step)%initialise( w2_fs )
-            end if
-
-            dry_mass_x => self%get_dry_mass_ffsl_x(mesh_id, step)
-            dry_mass_y => self%get_dry_mass_ffsl_y(mesh_id, step)
-
-            ! Check that mass isn't negative
-            write(field_name, '(A,I4)') 'dry_mass_ffsl_x', step
-            call self%check_negative_field(dry_mass_x, field_name)
-            write(field_name, '(A,I4)') 'dry_mass_ffsl_y', step
-            call self%check_negative_field(dry_mass_y, field_name)
-
-            if (topology == topology_fully_periodic &
-                .AND. geometry == geometry_spherical) then
-              ! Swap the halo values of dry_mass_x and dry_mass_y here: this
-              ! reduces the number of different kernels required by FFSL
-              max_stencil_extent = get_required_stencil_depth()
-              call invoke_ffsl_panel_swap_kernel_type(dry_mass_x, dry_mass_y,    &
-                                                      panel_id, max_stencil_extent)
+              call self%tracer_dep_dist_ixy(i,step_with_substep)%initialise( w2_fs )
+              call self%dry_frac_flux_ixy(i,step_with_substep)%initialise( w2_fs )
             end if
 
             ! Compute tracer departure points
             call invoke(                                                       &
-                    setval_c(self%tracer_dep_dist_oxy(i,step), 0.0_r_tran),    &
-                    setval_c(self%dry_frac_flux_oxy(i,step), 0.0_r_tran),      &
+                    setval_c(self%tracer_dep_dist_ixy(i,step_with_substep),    &
+                             0.0_r_tran),                                      &
+                    setval_c(self%dry_frac_flux_ixy(i,step_with_substep),      &
+                             0.0_r_tran),                                      &
                     hori_dep_dist_ffsl_kernel_type(                            &
-                                            self%tracer_dep_dist_oxy(i,step),  &
-                                            self%dry_frac_flux_oxy(i,step),    &
-                                            dry_flux,                          &
-                                            dry_mass_y, stencil_extent,        &
-                                            dry_mass_x, stencil_extent,        &
-                                            face_selector_ew,                  &
-                                            face_selector_ns,                  &
-                                            dep_pt_stencil_extent,             &
-                                            cap_dep_points) )
-
-            call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_oxy', &
-                                  self%tracer_dep_dist_oxy(i,step))
+                                self%tracer_dep_dist_ixy(i,step_with_substep), &
+                                self%dry_frac_flux_ixy(i,step_with_substep),   &
+                                dry_flux,                                      &
+                                dry_mass, stencil_extent,                      &
+                                dry_mass_copy, stencil_extent,                 &
+                                face_selector_ew,                              &
+                                face_selector_ns,                              &
+                                dep_pt_stencil_extent,                         &
+                                cap_dep_points) )
 
             ! Get the required stencil size from the departure points
-            call get_field_minmax(self%tracer_dep_dist_oxy(i,step), dep_min, dep_max)
-            self%tracer_stencil_extent_oxy(i,step) = &
+            call get_field_minmax(self%tracer_dep_dist_ixy(i,step_with_substep), &
+                                  dep_min, dep_max)
+            self%tracer_stencil_extent_ixy(i,step_with_substep) = &
               MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
 
-          end if  ! Outer step variables
-        end if  ! Horizontal
-      end do  ! Loop through steps
+            call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_ixy', &
+                                  self%tracer_dep_dist_ixy(i,step_with_substep))
+
+            ! Outer step quantities ----------------------------------------------
+            ! Determine if outer fields needed from initialisation of dry_mass_ffsl
+            if (any_consistent_swift) then
+              if (.not. self%tracer_dep_dist_oxy(i,step_with_substep)%is_initialised()) then
+                w2_fs => dry_flux%get_function_space()
+                twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+                w3_2d_fs => function_space_collection%get_fs(twod_mesh, 0, W3)
+                call self%tracer_dep_dist_oxy(i,step_with_substep)%initialise( w2_fs )
+                call self%dry_frac_flux_oxy(i,step_with_substep)%initialise( w2_fs )
+              end if
+
+              dry_mass_x => self%get_dry_mass_ffsl_x(mesh_id, step_with_substep)
+              dry_mass_y => self%get_dry_mass_ffsl_y(mesh_id, step_with_substep)
+
+              ! Check that mass isn't negative
+              write(field_name, '(A,I4)') 'dry_mass_ffsl_x', step_with_substep
+              call self%check_negative_field(dry_mass_x, field_name)
+              write(field_name, '(A,I4)') 'dry_mass_ffsl_y', step_with_substep
+              call self%check_negative_field(dry_mass_y, field_name)
+
+              if (topology == topology_fully_periodic &
+                  .AND. geometry == geometry_spherical) then
+                ! Swap the halo values of dry_mass_x and dry_mass_y here: this
+                ! reduces the number of different kernels required by FFSL
+                max_stencil_extent = get_required_stencil_depth()
+                call invoke_ffsl_panel_swap_kernel_type(dry_mass_x, &
+                                                        dry_mass_y, &
+                                                        panel_id,   &
+                                                        max_stencil_extent)
+              end if
+
+              ! Compute tracer departure points
+              call invoke(                                                     &
+                      setval_c(self%tracer_dep_dist_oxy(i,step_with_substep),  &
+                               0.0_r_tran),                                    &
+                      setval_c(self%dry_frac_flux_oxy(i,step_with_substep),    &
+                               0.0_r_tran),                                    &
+                      hori_dep_dist_ffsl_kernel_type(                          &
+                                self%tracer_dep_dist_oxy(i,step_with_substep), &
+                                self%dry_frac_flux_oxy(i,step_with_substep),   &
+                                dry_flux,                                      &
+                                dry_mass_y, stencil_extent,                    &
+                                dry_mass_x, stencil_extent,                    &
+                                face_selector_ew,                              &
+                                face_selector_ns,                              &
+                                dep_pt_stencil_extent,                         &
+                                cap_dep_points) )
+
+              call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_oxy', &
+                                    self%tracer_dep_dist_oxy(i,step_with_substep))
+
+              ! Get the required stencil size from the departure points
+              call get_field_minmax(self%tracer_dep_dist_oxy(i,step_with_substep), dep_min, dep_max)
+              self%tracer_stencil_extent_oxy(i,step_with_substep) = &
+                MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
+
+            end if  ! Outer step variables
+          end if  ! Horizontal
+        end do  ! Loop through steps
+      end do  ! Loop through sub steps
     end if  ! Whether consistent quantities need computing
 
     nullify(w2_fs, w3_2d_fs, dry_mass, dry_mass_x, dry_mass_y, &
@@ -2253,6 +2425,19 @@ contains
 ! GETTERS
 ! ============================================================================ !
 
+  !> @brief Returns the number of FFSL substeps
+  !> @return number_total_substeps the number of substeps for FFSL transport
+  function get_number_total_substeps(self) result(number_total_substeps)
+
+    implicit none
+
+    class(transport_runtime_type), target, intent(in) :: self
+    integer(kind=i_def)                               :: number_total_substeps
+
+    number_total_substeps = self%number_total_substeps
+
+  end function get_number_total_substeps
+
   !> @brief Computes number of MoL substeps for a splitting step
   !> @param[in] self       The transport_runtime object
   !> @param[in] mesh_id    Identifier of mesh
@@ -2260,8 +2445,9 @@ contains
   !> @param[in] splitting  A transport splitting enumerator
   !> @param[in] cfl_arg    CFL to use. Optional, and if not provided defaults
   !!                       to namelist options.
-  !> @return number_substeps  Number of substeps
-  function get_number_substeps(self, mesh_id, direction, splitting, cfl_arg) result(number_substeps)
+  !> @return number_mol_substeps
+  !!                       Number of MOL substeps
+  function get_number_mol_substeps(self, mesh_id, direction, splitting, cfl_arg) result(number_mol_substeps)
     use transport_config_mod,           only: cfl_mol_3d_stab, &
                                               cfl_mol_2d_stab, &
                                               cfl_mol_1d_stab
@@ -2272,7 +2458,7 @@ contains
     integer(kind=i_def),           intent(in) :: direction
     integer(kind=i_def),           intent(in) :: splitting
     real(kind=r_def),   optional,  intent(in) :: cfl_arg
-    integer(kind=i_def)                       :: number_substeps
+    integer(kind=i_def)                       :: number_mol_substeps
     integer(kind=i_def)                       :: idx
     real(kind=r_def)                          :: cfl_to_use
 
@@ -2296,41 +2482,41 @@ contains
     select case (direction)
 
       case (direction_v)
-        number_substeps = int( self%vertical_cfl_max(idx) / cfl_to_use, i_def) &
+        number_mol_substeps = int( self%vertical_cfl_max(idx) / cfl_to_use, i_def) &
                          + 1_i_def
         ! Strang_vhv splitting uses half timestep for the vertical stage
         if ( splitting == splitting_strang_vhv ) then
-          number_substeps = int( self%vertical_cfl_max(idx)        &
+          number_mol_substeps = int( self%vertical_cfl_max(idx)        &
                               /(2.0_r_tran*cfl_to_use),i_def) &
                           + 1_i_def
         end if
       case (direction_h)
-        number_substeps = int( self%horizontal_cfl_max(idx)      &
+        number_mol_substeps = int( self%horizontal_cfl_max(idx)      &
                               / cfl_to_use, i_def) &
                         + 1_i_def
         ! Strang_hvh splitting uses half timestep for the horizontal stage
         if ( splitting == splitting_strang_hvh ) then
-          number_substeps = int( self%horizontal_cfl_max(idx)        &
+          number_mol_substeps = int( self%horizontal_cfl_max(idx)        &
                               /(2.0_r_tran*cfl_to_use),i_def) &
                           + 1_i_def
         end if
 
       case (direction_3d)
-        number_substeps = int( self%total_cfl_max(idx)            &
+        number_mol_substeps = int( self%total_cfl_max(idx)            &
                               / cfl_to_use, i_def)  &
                          + 1_i_def
       case default
-        number_substeps = 1_i_def
+        number_mol_substeps = 1_i_def
     end select
 
-  end function get_number_substeps
+  end function get_number_mol_substeps
 
   !> @brief Get the MoL dt for substeps for this mesh / direction / splitting
   !> @param[in] self       The transport_runtime object
   !> @param[in] mesh_id    Identifier of mesh
   !> @param[in] direction  A transport direction enumerator
   !> @param[in] splitting  A transport splitting enumerator
-  !> @return dt_substep  The dt for MoL substeps
+  !> @return dt_substep    The dt for MoL substeps
   function get_dt_substep(self, mesh_id, direction, splitting) result(dt_substep)
 
     implicit none
@@ -2339,12 +2525,12 @@ contains
     integer(kind=i_def),           intent(in) :: mesh_id
     integer(kind=i_def),           intent(in) :: direction
     integer(kind=i_def),           intent(in) :: splitting
-    integer(kind=i_def)                       :: number_substeps
+    integer(kind=i_def)                       :: number_mol_substeps
     real(kind=r_tran)                         :: dt_substep
 
-    number_substeps = self%get_number_substeps(mesh_id, direction, splitting)
+    number_mol_substeps = self%get_number_mol_substeps(mesh_id, direction, splitting)
     dt_substep = real(self%model_clock%get_seconds_per_step(), r_tran) &
-                 / real(number_substeps, r_tran)
+                 / real(number_mol_substeps, r_tran)
     if ( splitting  == splitting_strang_vhv .and. direction == direction_v ) then
         dt_substep = dt_substep / 2.0_r_tran
     else if ( splitting  == splitting_strang_hvh .and. direction == direction_h ) then
@@ -2520,7 +2706,6 @@ contains
 
   end function get_dep_dist_xy_w2
 
-
   !> @brief Returns a pointer to the z departure distances at W2v DoFs
   !> @param[in] mesh_id The ID of the mesh to get the object for
   !> @param[in] strang  Logical for whether to return Strang split distances
@@ -2667,7 +2852,10 @@ contains
 
   !> @brief Returns a pointer to the consistent tracer departure points
   !> @param[in] mesh_id      The ID of the mesh to get the object for
-  !> @param[in] step         The split step to get the departure points for
+  !> @param[in] step         The split step to get the departure points for.
+  !!                         Note that if there is substepping then this
+  !!                         argument has the form
+  !!                         (substep-1) * n_step + split_step_number
   !> @param[in] outer_step   Logical denoting outer SWIFT step
   !> @return The tracer departure points at W2 DoFs
   function get_tracer_dep_dist_xy(self, mesh_id, step, outer_step) result(tracer_dep_points_xy)
@@ -2695,7 +2883,10 @@ contains
 
   !> @brief Returns a pointer to the consistent z departure points
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step    The split step to get the departure points for
+  !> @param[in] step    The split step to get the departure points for.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * n_step + split_step_number
   !> @return The consistent departure points for the z direction at W2 DoFs
   function get_tracer_dep_dist_z(self, mesh_id, step) result(tracer_dep_points_z)
 
@@ -2715,7 +2906,10 @@ contains
 
   !> @brief Returns a pointer to the dry inner fractional flux
   !> @param[in] mesh_id      The ID of the mesh to get the object for
-  !> @param[in] step         The split step to get the fractional flux for
+  !> @param[in] step         The split step to get the fractional flux for.
+  !!                         Note that if there is substepping then this
+  !!                         argument has the form
+  !!                         (substep-1) * n_step + split_step_number
   !> @param[in] outer_step   Logical denoting outer SWIFT step
   !> @return The dry inner fractional flux
   function get_dry_frac_flux_xy(self, mesh_id, step, outer_step) result(dry_frac_flux_xy)
@@ -2743,7 +2937,10 @@ contains
 
   !> @brief Returns a pointer to the consistent z fractional flux
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step    The split step to get the fractional flux for
+  !> @param[in] step    The split step to get the fractional flux for.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * n_step + split_step_number
   !> @return The consistent fractional flux for the z direction
   function get_dry_frac_flux_z(self, mesh_id, step) result(dry_frac_flux_z)
 
@@ -2984,7 +3181,10 @@ contains
   !> @brief Returns a pointer to required stencil size for consistent FFSL
   !!        transport based on the maximum horizontal inner departure distance
   !> @param[in] mesh_id      The ID of the mesh to get the object for
-  !> @param[in] step         The split step to get the extent for
+  !> @param[in] step         The split step to get the extent for.
+  !!                         Note that if there is substepping then this
+  !!                         argument has the form
+  !!                         (substep-1) * n_step + split_step_number
   !> @param[in] outer_step   Logical denoting outer SWIFT step
   !> @return The required stencil depth
   function get_tracer_stencil_extent_xy(self, mesh_id, step, outer_step) result(dep_stencil_extent_xy)
@@ -3033,7 +3233,10 @@ contains
 
   !> @brief Returns a pointer to a dry density field from FFSL
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step The step from which to return the density
+  !> @param[in] step    The step from which to return the density.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * (n_step+1) + dry_step_number
   !> @return The dry density field after its transport
   function get_rho_d(self, mesh_id, step) result(rho_d)
 
@@ -3053,7 +3256,10 @@ contains
 
   !> @brief Returns a pointer to a dry mass field
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step The step from which to return the density
+  !> @param[in] step    The step from which to return the density.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * (n_step+1) + dry_step_number
   !> @return The dry mass field after its transport
   function get_dry_mass(self, mesh_id, step) result(dry_mass)
 
@@ -3073,8 +3279,11 @@ contains
 
   !> @brief Returns a pointer to a dry density field from an FFSL x-sweep
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step The step from which to return the density
-  !> @return The dry density field after its transport
+  !> @param[in] step    The step from which to return the density.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * n_step + dry_step_number
+  !> @return The dry density field after its FFSL x-sweep transport
   function get_dry_mass_ffsl_x(self, mesh_id, step) result(dry_mass_ffsl)
 
     implicit none
@@ -3093,8 +3302,11 @@ contains
 
   !> @brief Returns a pointer to a dry density field from an FFSL y-sweep
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step The step from which to return the density
-  !> @return The dry density field after its transport
+  !> @param[in] step    The step from which to return the density.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * n_step + dry_step_number
+  !> @return The dry density field after its FFSL y-sweep transport
   function get_dry_mass_ffsl_y(self, mesh_id, step) result(dry_mass_ffsl)
 
     implicit none
@@ -3130,7 +3342,10 @@ contains
 
   !> @brief Returns a pointer to the flux from transporting dry density
   !> @param[in] mesh_id The ID of the mesh to get the object for
-  !> @param[in] step The step from which to return the dry flux
+  !> @param[in] step    The step from which to return the dry flux.
+  !!                    Note that if there is substepping then this
+  !!                    argument has the form
+  !!                    (substep-1) * n_step + dry_step_number
   !> @return The dry density flux
   function get_dry_flux(self, mesh_id, step) result(dry_flux)
 
@@ -3340,6 +3555,40 @@ contains
     tracer_step_ctr = self%tracer_step_ctr
 
   end function get_tracer_step_ctr
+
+  !> @brief Returns the counter of tracer transport sub steps
+  !> @return The tracer sub step counter
+  function get_substep_total_ctr(self) result(substep_total_ctr)
+
+    implicit none
+
+    class(transport_runtime_type), target, intent(in) :: self
+    integer(kind=i_def) :: substep_total_ctr
+
+    substep_total_ctr = self%substep_total_ctr
+
+  end function get_substep_total_ctr
+
+  !> @brief Returns the index of tracer transport sub steps
+  !!        and split steps in the form
+  !!        (substep - 1)*(n_step + option)
+  !> @param[in] option Storage above n_step for each substep. This is
+  !!                   generally zero (for fields stored at each split
+  !!                   step, such as fluxes) or one (for fields stored
+  !!                   initially and at each split step, such as dry mass).
+  !> @return The sub step and step index
+  function get_substep_total_index(self,option) result(substep_total_index)
+
+    implicit none
+
+    class(transport_runtime_type), target, intent(in) :: self
+    integer(kind=i_def),                   intent(in) :: option
+    integer(kind=i_def) :: substep_total_index
+
+    substep_total_index = (self%substep_total_ctr - 1) * &
+                          (self%num_dry_steps + option)
+
+  end function get_substep_total_index
 
   !> @brief Returns the flag to do the first outer transport advectively
   !> @return The advective flag

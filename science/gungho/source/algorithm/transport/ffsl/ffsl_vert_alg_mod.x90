@@ -114,6 +114,7 @@ contains
     logical(kind=l_def) :: to_compute_adv_inc
     logical(kind=l_def) :: to_compute_field_np1
     logical(kind=l_def) :: strang
+    integer(kind=i_def) :: step_with_substep
 
     ! Subroutine name for timer
     character(*), parameter :: routine_name = 'transport.ffsl_vertical'
@@ -148,7 +149,6 @@ contains
       transport_runtime => get_transport_runtime(mesh)
       field_fs => field_n%get_function_space()
       detj_at_w3 => get_detj_at_w3_r_tran(mesh_id)
-
       step = transport_runtime%get_tracer_step_ctr()
       one_over_dt = 1.0_r_tran / step_dt
 
@@ -198,8 +198,9 @@ contains
       case ( equation_form_consistent )
 
         ! Multiply tracer mixing ratio by dry density to get tracer density
-        dry_mass_n => transport_runtime%get_dry_mass(mesh_id, step)
-        dry_mass_np1 => transport_runtime%get_dry_mass(mesh_id, step+1)
+        step_with_substep = transport_runtime%get_substep_total_index(1)+step
+        dry_mass_n => transport_runtime%get_dry_mass(mesh_id, step_with_substep)
+        dry_mass_np1 => transport_runtime%get_dry_mass(mesh_id, step_with_substep+1)
 
         call invoke( fv_difference_z_kernel_type(increment, mass_flux) )
 
@@ -269,6 +270,8 @@ contains
     logical(kind=l_def) :: reversible
     integer(kind=i_def) :: equation_form
     logical(kind=l_def) :: strang_vhv
+    integer(kind=i_def) :: step_with_substep
+    integer(kind=i_def) :: step_p1_with_substep
 
     ! Internal fields
     type(r_tran_field_type) :: dz_w3
@@ -316,9 +319,11 @@ contains
       ! No need to take Strang into account for tracer departure points, as this
       ! should already be factored into the departure points
       step = transport_runtime%get_tracer_step_ctr()
-      dep_pts_z => transport_runtime%get_tracer_dep_dist_z(mesh_id, step)
-      frac_wind_or_flux => transport_runtime%get_dry_frac_flux_z(mesh_id, step)
-      detj_at_w3 => transport_runtime%get_dry_mass(mesh_id, step)
+      step_with_substep = transport_runtime%get_substep_total_index(0)+step
+      dep_pts_z => transport_runtime%get_tracer_dep_dist_z(mesh_id, step_with_substep)
+      frac_wind_or_flux => transport_runtime%get_dry_frac_flux_z(mesh_id, step_with_substep)
+      step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step
+      detj_at_w3 => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
 
     case default
       call log_event( "ffsl_1d_vert_flux_alg: Unrecognized equation form", LOG_LEVEL_ERROR )

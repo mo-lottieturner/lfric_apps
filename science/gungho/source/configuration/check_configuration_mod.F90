@@ -42,6 +42,8 @@ module check_configuration_mod
                                   ffsl_inner_order,                &
                                   ffsl_outer_order,                &
                                   dep_pt_stencil_extent,           &
+                                  substep_transport,               &
+                                  substep_transport_off,           &
                                   adjust_vhv_wind,                 &
                                   ffsl_unity_3d
   use transport_enumerated_types_mod,                              &
@@ -329,9 +331,18 @@ contains
       do i = 1, profile_size
         if ( splitting(i) /= splitting_none .AND. scheme(i) /= scheme_split ) then
           write( log_scratch_space, '(A)') trim(field_names(i)) // ' variable ' // &
-            'is not being transported with a split transport scheme, so it ' // &
+            'is not being transported with a split transport scheme, so it ' //    &
             'must have its splitting option set to none'
           call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+        end if
+
+        if ( substep_transport /= substep_transport_off .and. &
+             (scheme(i) == scheme_mol_3d .or.                 &
+              vertical_method(i) == split_method_mol .or.     &
+              horizontal_method(i) == split_method_mol) ) then
+          call log_event('Substepping the whole transport is only valid with FFSL ' // &
+                         'for all variables. Set substep_transport=off to ' //         &
+                         'run with MoL', LOG_LEVEL_ERROR)
         end if
 
         if ( scheme(i) == scheme_mol_3d .and. vertical_method(i) /= split_method_mol ) then

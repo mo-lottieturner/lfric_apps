@@ -76,12 +76,13 @@ contains
     type(mesh_type),              pointer :: primary_mesh => null()
     type(mesh_type),              pointer :: shifted_mesh => null()
     type(transport_runtime_type), pointer :: transport_runtime => null()
-    integer(kind=i_def)                   :: num_dry_steps
+    integer(kind=i_def)                   :: num_dry_steps, number_substeps
 
     ! Set up some things that are independent of the function space
     primary_mesh => field_n_rdef%get_mesh()
     shifted_mesh => mesh_collection%get_mesh(primary_mesh, SHIFTED)
     transport_runtime => get_transport_runtime(primary_mesh)
+    number_substeps = transport_runtime%get_number_total_substeps()
 
     ! First transfer r_def fields to be r_tran
     call field_np1_rtran%initialise( vector_space = field_np1_rdef%get_function_space()  )
@@ -100,9 +101,10 @@ contains
 
       ! rho_d_n is from first step
       rho_d_n => transport_runtime%get_rho_d(primary_mesh%get_id(), 1)
-      ! rho_d_np1 is from final step
+      ! rho_d_np1 is from final step (note substepping is performed in
+      ! transport_field and so we need rho_d_np1 from the end of the final substep)
       num_dry_steps = transport_runtime%get_num_dry_steps()
-      rho_d_np1 => transport_runtime%get_rho_d(primary_mesh%get_id(), num_dry_steps+1)
+      rho_d_np1 => transport_runtime%get_rho_d(primary_mesh%get_id(), number_substeps*(num_dry_steps+1))
 
       ! multiply field by rho in native space
       call invoke( X_times_Y(rho_field_n, rho_d_n, field_n_rdef) )
@@ -124,9 +126,10 @@ contains
 
       ! rho_d_n is from first step
       rho_d_n => transport_runtime%get_rho_d(shifted_mesh%get_id(), 1)
-      ! rho_d_np1 is from final step
+      ! rho_d_np1 is from final step (note substepping is performed in
+      ! transport_field and so we need rho_d_np1 from the end of the final substep)
       num_dry_steps = transport_runtime%get_num_dry_steps()
-      rho_d_np1 => transport_runtime%get_rho_d(shifted_mesh%get_id(), num_dry_steps+1)
+      rho_d_np1 => transport_runtime%get_rho_d(shifted_mesh%get_id(), number_substeps*(num_dry_steps+1))
 
       ! multiply field by rho in shifted space
       if ( transport_metadata%get_enforce_min_value() ) then
@@ -142,7 +145,6 @@ contains
                                   transport_metadata)
 
       call invoke( X_divideby_Y(field_np1_sh_w3, rho_field_np1, rho_d_np1) )
-
 
       ! Turn back to Wtheta
       if ( transport_metadata%get_enforce_min_value() ) then

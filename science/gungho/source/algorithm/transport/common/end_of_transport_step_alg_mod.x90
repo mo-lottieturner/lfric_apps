@@ -177,6 +177,9 @@ contains
 
     ! Internal variables
     integer(kind=i_def)                   :: mesh_id, step, fs_idx
+    integer(kind=i_def)                   :: step_with_substep, total_substep
+    integer(kind=i_def)                   :: step_p1_with_substep
+    integer(kind=i_def)                   :: substep_number, total_steps
     integer(kind=i_def)                   :: limit_iteration
     integer(kind=i_def)                   :: num_limiting_steps
     type(mesh_type),              pointer :: mesh
@@ -341,11 +344,17 @@ contains
 
       field_fs => field_np1%get_function_space()
       step = transport_runtime%get_tracer_step_ctr()
+      total_steps = transport_runtime%get_num_dry_steps()
+      ! Get substep information
+      substep_number = transport_runtime%get_substep_total_ctr()
+      total_substep = transport_runtime%get_number_total_substeps()
+      step_with_substep = transport_runtime%get_substep_total_index(0)+step
+      step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step+1
 
       ! Need to compute the corresponding density transported by this flux
       if ( subroutine_timers ) call timer('transport.end_cons_update')
 
-      conservative_field_n => transport_runtime%get_rho_d(mesh_id, step)
+      conservative_field_n => transport_runtime%get_rho_d(mesh_id, step_p1_with_substep-1)
       call conservative_field_np1%initialise(field_fs)
       call increment%initialise(field_fs)
 
@@ -401,8 +410,8 @@ contains
                                                depth=transport_boundary_depth)
           end if
 
-          call transport_runtime%set_rho_d_ffsl_x(conservative_field_x, step)
-          call transport_runtime%set_rho_d_ffsl_y(conservative_field_y, step)
+          call transport_runtime%set_rho_d_ffsl_x(conservative_field_x, step_with_substep)
+          call transport_runtime%set_rho_d_ffsl_y(conservative_field_y, step_with_substep)
         end if
 
       end if
@@ -411,12 +420,17 @@ contains
         call overwrite_blending_zone_rtran(conservative_field_np1, conservative_field_n, depth=transport_boundary_depth)
       end if
 
-      call transport_runtime%set_rho_d(conservative_field_np1, step + 1)
+      call transport_runtime%set_rho_d(conservative_field_np1, step_p1_with_substep)
+
+      ! if we are substepping we also need to set rho_d at the start of the next substep
+      if ( substep_number<total_substep .AND. step == total_steps ) then
+        call transport_runtime%set_rho_d(conservative_field_np1, step_p1_with_substep+1)
+      end if
 
       if ( subroutine_timers ) call timer('transport.end_cons_update')
 
       ! Store the dry flux
-      call transport_runtime%set_dry_flux(flux, step)
+      call transport_runtime%set_dry_flux(flux, step_with_substep)
     end if
 
     ! Increment the step counter in the transport runtime
@@ -474,6 +488,9 @@ contains
     ! Internal variables
     integer(kind=i_def)                   :: prime_extrusion_mesh_id
     integer(kind=i_def)                   :: step, last_step
+    integer(kind=i_def)                   :: step_with_substep
+    integer(kind=i_def)                   :: start_step_with_substep
+    integer(kind=i_def)                   :: final_step_with_substep
     integer(kind=i_def)                   :: limit_iteration
     integer(kind=i_def)                   :: num_limiting_steps
     integer(kind=i_def)                   :: mr_function_space
@@ -562,8 +579,9 @@ contains
       shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
       sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, W3)
       step = transport_runtime%get_tracer_step_ctr()
+      step_with_substep = transport_runtime%get_substep_total_index(0)+step
       rmultiplicity_shifted => get_rmultiplicity(flux_function_space, shifted_mesh%get_id())
-      dry_flux => transport_runtime%get_dry_flux(prime_extrusion_mesh_id, step)
+      dry_flux => transport_runtime%get_dry_flux(prime_extrusion_mesh_id, step_with_substep)
       height_wt => get_height(Wtheta, prime_extrusion_mesh_id)
       logspace = transport_metadata%get_log_space()
       face_selector_ew => get_face_selector_ew(prime_extrusion_mesh_id)
@@ -616,13 +634,15 @@ contains
       ! ---------------------------------------------------------------------- !
 
       last_step = transport_runtime%get_num_dry_steps()
+      start_step_with_substep = transport_runtime%get_substep_total_index(1)+1
+      final_step_with_substep = transport_runtime%get_substep_total_index(1)+last_step
 
       select case ( mr_function_space )
       case ( W3 )
         w3_fs => function_space_collection%get_fs(prime_extrusion_mesh, 0, W3)
         w2_fs => function_space_collection%get_fs(prime_extrusion_mesh, 0, W2)
-        rho_d_start => transport_runtime%get_rho_d(prime_extrusion_mesh_id, 1)
-        rho_d_np1 => transport_runtime%get_rho_d(prime_extrusion_mesh_id, last_step+1)
+        rho_d_start => transport_runtime%get_rho_d(prime_extrusion_mesh_id, start_step_with_substep)
+        rho_d_np1 => transport_runtime%get_rho_d(prime_extrusion_mesh_id, final_step_with_substep+1)
         div => get_directional_im3_div_r_tran(prime_extrusion_mesh_id, direction_3d)
         ! TODO #3706: the flux limiter should use r_tran precision
         div_r_def => get_directional_im3_div(prime_extrusion_mesh_id, direction_3d)
@@ -639,8 +659,8 @@ contains
         shifted_mesh => mesh_collection%get_mesh(prime_extrusion_mesh, SHIFTED)
         sh_w3_fs => function_space_collection%get_fs(shifted_mesh, 0, W3)
         sh_w2_fs => function_space_collection%get_fs(shifted_mesh, 0, W2)
-        rho_d_start => transport_runtime%get_rho_d(shifted_mesh%get_id(), 1)
-        rho_d_np1 => transport_runtime%get_rho_d(shifted_mesh%get_id(), last_step+1)
+        rho_d_start => transport_runtime%get_rho_d(shifted_mesh%get_id(), start_step_with_substep)
+        rho_d_np1 => transport_runtime%get_rho_d(shifted_mesh%get_id(), final_step_with_substep+1)
         div => get_directional_im3_div_r_tran(shifted_mesh%get_id(), direction_3d)
         ! TODO #3706: the flux limiter should use r_tran precision
         div_r_def => get_directional_im3_div(shifted_mesh%get_id(), direction_3d)

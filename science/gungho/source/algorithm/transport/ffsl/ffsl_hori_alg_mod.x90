@@ -514,6 +514,8 @@ contains
     integer(kind=i_def) :: cfl_stencil_xy
     integer(kind=i_def) :: remap_depth
     real(kind=r_tran)   :: min_val
+    integer(kind=i_def) :: step_with_substep
+    integer(kind=i_def) :: step_p1_with_substep
 
     logical(kind=l_def) :: to_compute_adv_inc
     logical(kind=l_def) :: to_compute_field_np1
@@ -546,17 +548,26 @@ contains
     if (equation_form == equation_form_consistent) then
       ! Consistent form of equation uses mass in place of volume
       step = transport_runtime%get_tracer_step_ctr()
+      step_with_substep = transport_runtime%get_substep_total_index(0)+step
       if (swift_splitting) then
-        dry_mass_x => transport_runtime%get_dry_mass_ffsl_x(mesh_id, step)
-        dry_mass_y => transport_runtime%get_dry_mass_ffsl_y(mesh_id, step)
+        dry_mass_x => transport_runtime%get_dry_mass_ffsl_x(mesh_id, step_with_substep)
+        dry_mass_y => transport_runtime%get_dry_mass_ffsl_y(mesh_id, step_with_substep)
       else
         ! Same density used for both steps
-        dry_mass_x => transport_runtime%get_dry_mass(mesh_id, step)
-        dry_mass_y => transport_runtime%get_dry_mass(mesh_id, step)
+        step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step
+        dry_mass_x => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
+        dry_mass_y => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
       end if
-      dep_dist_xy => transport_runtime%get_tracer_dep_dist_xy(mesh_id, step, outer)
-      dep_stencil_extent_xy => transport_runtime%get_tracer_stencil_extent_xy(mesh_id, step, outer)
-      frac_flux_xy => transport_runtime%get_dry_frac_flux_xy(mesh_id, step, outer)
+      dep_dist_xy => transport_runtime%get_tracer_dep_dist_xy(mesh_id, step_with_substep, outer)
+      dep_stencil_extent_xy => transport_runtime%get_tracer_stencil_extent_xy(mesh_id, step_with_substep, outer)
+      frac_flux_xy => transport_runtime%get_dry_frac_flux_xy(mesh_id, step_with_substep, outer)
+    else if (ffsl_unity_3d) then
+      step = transport_runtime%get_tracer_step_ctr()
+      frac_flux_xy => transport_runtime%get_unity_frac_wind_xy(mesh_id, step, outer)
+      adv_detj_x => transport_runtime%get_detj_unity_x(mesh_id, step)
+      adv_detj_y => transport_runtime%get_detj_unity_y(mesh_id, step)
+      dep_dist_xy => transport_runtime%get_unity_dep_dist_xy(mesh_id, step, outer)
+      dep_stencil_extent_xy => transport_runtime%get_unity_stencil_extent_xy(mesh_id, step, outer)
     else if (ffsl_unity_3d) then
       step = transport_runtime%get_tracer_step_ctr()
       frac_flux_xy => transport_runtime%get_unity_frac_wind_xy(mesh_id, step, outer)
@@ -806,7 +817,8 @@ contains
 
       case ( equation_form_consistent )
         step = transport_runtime%get_tracer_step_ctr()
-        dry_mass_np1 => transport_runtime%get_dry_mass(mesh_id, step+1)
+        step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step
+        dry_mass_np1 => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep+1)
         call increment_x%initialise( vector_space = field_fs )
         call increment_y%initialise( vector_space = field_fs )
 
@@ -828,8 +840,8 @@ contains
           call increment%initialise( vector_space = field_fs )
 
           ! Multiply tracer mixing ratio by dry density to get tracer density
-          rho_d_n => transport_runtime%get_rho_d(mesh_id, step)
-          rho_d_np1 => transport_runtime%get_rho_d(mesh_id, step+1)
+          rho_d_n => transport_runtime%get_rho_d(mesh_id, step_p1_with_substep)
+          rho_d_np1 => transport_runtime%get_rho_d(mesh_id, step_p1_with_substep+1)
 
           call invoke( X_times_Y(conservative_field_n, field_n, rho_d_n),      &
                        ! Calculate increment to tracer density
@@ -925,6 +937,8 @@ contains
     integer(kind=i_def) :: special_edges_monotone
     integer(kind=i_def) :: equation_form
     logical(kind=l_def) :: strang
+    integer(kind=i_def) :: step_with_substep
+    integer(kind=i_def) :: step_p1_with_substep
 
     ! Constants
     integer(kind=i_def) :: mesh_id, step
@@ -954,13 +968,27 @@ contains
 
     if (equation_form == equation_form_consistent) then
       ! Consistent form of equation uses dry mass in place of volume
-      dry_mass_n => transport_runtime%get_dry_mass(mesh_id, step)
-      dry_mass_n_copy => transport_runtime%get_dry_mass(mesh_id, step)
-      dry_mass_x => transport_runtime%get_dry_mass_ffsl_x(mesh_id, step)
-      dry_mass_y => transport_runtime%get_dry_mass_ffsl_y(mesh_id, step)
-      dep_dist_xy => transport_runtime%get_tracer_dep_dist_xy(mesh_id, step, outer_step=.false.)
-      dep_stencil_extent_xy => transport_runtime%get_tracer_stencil_extent_xy(mesh_id, step, outer_step=.false.)
-      frac_flux_xy => transport_runtime%get_dry_frac_flux_xy(mesh_id, step, outer_step=.false.)
+      step_p1_with_substep = transport_runtime%get_substep_total_index(1)+step
+      dry_mass_n => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
+      dry_mass_n_copy => transport_runtime%get_dry_mass(mesh_id, step_p1_with_substep)
+      step_with_substep = transport_runtime%get_substep_total_index(0)+step
+      dry_mass_x => transport_runtime%get_dry_mass_ffsl_x(mesh_id, step_with_substep)
+      dry_mass_y => transport_runtime%get_dry_mass_ffsl_y(mesh_id, step_with_substep)
+      dep_dist_xy => transport_runtime%get_tracer_dep_dist_xy(                 &
+                                 mesh_id, step_with_substep, outer_step=.false.)
+      dep_stencil_extent_xy => transport_runtime%get_tracer_stencil_extent_xy( &
+                                 mesh_id, step_with_substep, outer_step=.false.)
+      frac_flux_xy => transport_runtime%get_dry_frac_flux_xy(                  &
+                                 mesh_id, step_with_substep, outer_step=.false.)
+    else if (ffsl_unity_3d) then
+      ! Advective/conservative forms of equation use volume ("detj")
+      detj_at_w3 => transport_runtime%get_detj_unity(mesh_id, step)
+      detj_at_w3_copy => transport_runtime%get_detj_unity(mesh_id, step)
+      adv_detj_x => transport_runtime%get_detj_unity_x(mesh_id, step)
+      adv_detj_y => transport_runtime%get_detj_unity_y(mesh_id, step)
+      dep_dist_xy => transport_runtime%get_unity_dep_dist_xy(mesh_id, step, outer_step=.false.)
+      dep_stencil_extent_xy => transport_runtime%get_unity_stencil_extent_xy(mesh_id, step, outer_step=.false.)
+      frac_flux_xy => transport_runtime%get_unity_frac_wind_xy(mesh_id, step, outer_step=.false.)
     else if (ffsl_unity_3d) then
       ! Advective/conservative forms of equation use volume ("detj")
       detj_at_w3 => transport_runtime%get_detj_unity(mesh_id, step)

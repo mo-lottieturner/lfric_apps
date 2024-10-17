@@ -305,7 +305,6 @@ contains
       rho_d_n_ptr => rho_d_n_trgt
     end if
 
-
     ! Create object in transport_runtime_collection (advecting wind etc)
     if ( check_any_shifted() ) then
       primary_mesh => wind_n%get_mesh()
