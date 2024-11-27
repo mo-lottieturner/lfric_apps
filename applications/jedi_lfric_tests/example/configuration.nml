@@ -231,6 +231,7 @@ partitioner='cubedsphere',
 limit_drag_incs=.false.,
 sample_physics_scalars=.true.,
 sample_physics_winds=.true.,
+configure_segments=.false.
 /
 &planet
 cp=1005.0,

@@ -230,6 +230,7 @@ panel_yproc=1,
 partitioner='cubedsphere',
 /
 &physics
+configure_segments=.false.
 /
 &planet
 cp=1005.0,

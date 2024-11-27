@@ -41,6 +41,8 @@ contains
                                  v_i_length, v_j_length
     use tuning_segments_mod, only: bl_segment_size, precip_segment_size, &
                                    ussp_seg_size, gw_seg_size
+    use physics_config_mod,  only : ls_ppn_segment, configure_segments
+    use log_mod, only : log_event, log_scratch_space, LOG_LEVEL_ERROR
 
     implicit none
 
@@ -71,8 +73,28 @@ contains
     ! a kernel is passed.
     bl_segment_size     = row_length
     gw_seg_size         = row_length
-    precip_segment_size = row_length
     ussp_seg_size       = row_length
+
+    if (configure_segments) then
+      select case (ls_ppn_segment)
+        case (:-1)
+          write(log_scratch_space,'(A)') &
+                'Invalid value: specified large scale precipitation segment is -ve.'
+          call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+
+        case (1:)
+          ! Set the value from the namelist
+          precip_segment_size = ls_ppn_segment
+
+        case default
+          ! Default behaviour is to set to row_length
+          precip_segment_size = row_length
+
+      end select
+    else
+      ! Default behaviour is to set to row_length
+      precip_segment_size = row_length
+    end if
 
     ! Compute lengths in i and j direction. This is the earliest place that they
     ! are needed. They will be kept in the module from here onward.
