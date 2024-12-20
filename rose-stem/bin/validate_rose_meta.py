@@ -80,8 +80,10 @@ def check_metadata(application, source_dir):
     elif application in SCIENCE:
         meta_path = os.path.join("science", application, "rose-meta")
     else:
-        sys.exit(f"Application {application} not defined in either "
-                 "APPLICATIONS or SCIENCE lists.")
+        sys.exit(
+            f"Application {application} not defined in either "
+            "APPLICATIONS or SCIENCE lists."
+        )
     retcode = 0
     paths = os.listdir(os.path.join(source_dir, meta_path))
     for path in paths:
@@ -101,7 +103,9 @@ def validate_app(app, source_dir, ignore_sc):
     Run rose macro --validate on rose-stem apps
     """
     app_dir = os.path.join(source_dir, "rose-stem", "app", app)
-    validate_command = f"rose macro --validate -M {source_dir} -C {app_dir}"
+    validate_command = (
+        f"rose macro --validate -M {source_dir} -C {app_dir} --no-warn version"
+    )
     process = run_subprocess(validate_command, False)
     print(process.stdout)
     if process.returncode:
@@ -130,8 +134,10 @@ if __name__ == "__main__":
     """
 
     if "ROSE_META_PATH" not in os.environ:
-        sys.exit("Require 'ROSE_META_PATH' to be set as an environment "
-                 "variable, pointing at the lfric_core source working copy.")
+        sys.exit(
+            "Require 'ROSE_META_PATH' to be set as an environment "
+            "variable, pointing at the lfric_core source working copy."
+        )
 
     failures = False
 
@@ -148,7 +154,7 @@ if __name__ == "__main__":
         "-i",
         "--ignore_sc",
         help="Ignore failures from rose-app-suite_controlled.conf files.",
-        default=True
+        default=True,
     )
     args = parser.parse_args()
 
@@ -164,7 +170,6 @@ if __name__ == "__main__":
         else:
             print(f"[PASS] {application} passed rose metadata-check")
 
-
     print("[INFO] Validating App Configurations")
     if args.ignore_sc:
         print("[WARNING]: Ignoring rose-app-suite_controlled.conf failures")
@@ -179,8 +184,10 @@ if __name__ == "__main__":
                 print(f"[FAIL] {application} with app {app} failed to validate")
                 failures = True
             else:
-                print(f"[PASS] {application} with app {app} "
-                      "validated successfully")
+                print(
+                    f"[PASS] {application} with app {app} "
+                    "validated successfully"
+                )
 
     if failures:
         sys.exit("There were metadata validation failures")
