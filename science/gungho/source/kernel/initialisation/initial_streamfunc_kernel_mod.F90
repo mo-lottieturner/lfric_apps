@@ -18,7 +18,6 @@ use argument_mod,              only : arg_type, func_type,       &
 use constants_mod,             only : r_def, i_def, PI
 use fs_continuity_mod,         only : W1
 use kernel_mod,                only : kernel_type
-use log_mod,                   only : log_event, LOG_LEVEL_ERROR
 use initial_wind_config_mod,   only : profile
 
 implicit none
@@ -205,10 +204,6 @@ subroutine initial_streamfunc_code(nlayers,                         &
           ! Coords must be (X,Y,Z)
           psi_physical = analytic_streamfunction( coords, profile, 2, option2, &
                                                   time, domain_max_x )
-        else
-          call log_event('initial_streamfunc_kernel is not implemented ' // &
-                         'with your geometry and topology',                 &
-                         LOG_LEVEL_ERROR)
         end if
 
         do df = 1, ndf

@@ -24,7 +24,6 @@ module initial_u_kernel_mod
                                       profile, sbr_angle_lat, sbr_angle_lon, &
                                       u0, v0, shear, wavelength
   use kernel_mod,              only : kernel_type
-  use log_mod,                 only : log_event, LOG_LEVEL_ERROR
 
   implicit none
 

@@ -19,7 +19,6 @@ module set_rho_kernel_mod
   use constants_mod,        only : r_def, i_def
   use idealised_config_mod, only : test
   use kernel_mod,           only : kernel_type
-  use log_mod,              only : log_event, LOG_LEVEL_ERROR
 
   implicit none
 

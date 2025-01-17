@@ -48,6 +48,7 @@ contains
     integer(kind=i_def), allocatable :: stencil_map(:,:,:)
     integer(kind=i_def), allocatable :: face_selector_ew(:)
     integer(kind=i_def), allocatable :: face_selector_ns(:)
+    integer(kind=i_def), allocatable :: error_flag(:)
     real(kind=r_tran),   allocatable :: rho_d(:)
     real(kind=r_tran),   allocatable :: dry_flux(:)
     real(kind=r_tran),   allocatable :: x_w2x(:)
@@ -91,6 +92,7 @@ contains
     allocate(true_frac_flux_answer(undf_w2h))
     allocate(face_selector_ew(undf_w3))
     allocate(face_selector_ns(undf_w3))
+    allocate(error_flag(undf_w3))
 
     ! DoF maps
     map_w3 = reshape((/ 1, 2, 3, 4, 5, 6, 7, 8, &
@@ -159,6 +161,7 @@ contains
 
     face_selector_ew(:) = 1
     face_selector_ns(:) = 1
+    error_flag(:) = 0
 
     true_dep_pts_answer = (/ 0.0_r_tran, 0.0_r_tran, 0.0_r_tran, 0.0_r_tran,   &
                              0.0_r_tran, 0.0_r_tran, 0.0_r_tran,               &
@@ -208,6 +211,7 @@ contains
                                     stencil_map(:,:,cell), &
                                     face_selector_ew,      &
                                     face_selector_ns,      &
+                                    error_flag,            &
                                     stencil_extent,        &
                                     cap_dep_points,        &
                                     ndf_w2h,               &

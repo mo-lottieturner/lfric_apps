@@ -31,9 +31,6 @@ use initial_pressure_config_mod,    only : surface_pressure
 use initial_temperature_config_mod, only : bvf_square, theta_surf
 use planet_config_mod,              only : scaled_radius, gravity, Cp, Rd, &
                                            kappa, p_zero
-use log_mod,                        only : log_event,         &
-                                           log_scratch_space, &
-                                           LOG_LEVEL_ERROR
 use formulation_config_mod,         only : shallow
 implicit none
 

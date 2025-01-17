@@ -10,7 +10,6 @@
 module departure_points_support_mod
 
 use constants_mod, only : r_tran, i_def
-use log_mod,       only : log_event, LOG_LEVEL_ERROR, log_scratch_space
 use departure_points_config_mod, only : vertical_method_euler,       &
                                         vertical_method_midpoint,    &
                                         vertical_method_trapezoidal, &
@@ -110,7 +109,6 @@ contains
     ! Check computational arrival point is in range
     left_limit = 0.0_r_tran
     right_limit = real(nCellEdges-1,r_tran)
-    call test_value_in_limits(x_arrival_comp,left_limit,right_limit)
 
     ! Compute u_np1 at the arrival point
     u_arrival = calc_u_in_vertical_comp(x_arrival_comp,nCellEdges,u_np1)
@@ -137,8 +135,6 @@ contains
           x_departure = x_arrival_phys - deltaT*u_at_midpoint
         end do
 
-    case default
-        call log_event( " Only Lagrangian departure point methods implemented ", LOG_LEVEL_ERROR )
     end select
 
     ! Convert to computational departure distance ensuring it is within range
@@ -210,36 +206,7 @@ contains
     ! Calculate distance from nearest lefthand cell edge
     fractional_x_value = abs(x_in - floor(x_in))
 
-    if (iEdge < 1_i_def .OR. iEdge > nCellEdges) then
-      call log_event( " Error in find_local_vertical_value routine ", LOG_LEVEL_ERROR )
-    end if
-
   end subroutine find_local_vertical_value
-
-  !----------------------------------------------------------------------------
-  !> @brief  Subroutine which checks whether departure points are outside the
-  !!         domain of interest defined by the stencil length.
-  !!
-  !! @param[in]   x_in         X value to be tested
-  !! @param[in]   left_limit   Left hand bound
-  !! @param[in]   right_limit  Right hand bound
-  !----------------------------------------------------------------------------
-  subroutine test_value_in_limits(x_in,left_limit,right_limit)
-
-    implicit none
-
-    real(kind=r_tran), intent(in) ::   x_in
-    real(kind=r_tran), intent(in) ::   left_limit
-    real(kind=r_tran), intent(in) ::   right_limit
-
-    if (x_in < left_limit .OR. x_in > right_limit) then
-      write(log_scratch_space, '(A,E12.4E3,A,2E12.4E3)')           &
-         'Departure distance ', x_in,                              &
-         ' is out of bounds. Limits are ', left_limit, right_limit
-      call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-    end if
-
-  end subroutine test_value_in_limits
 
   !----------------------------------------------------------------------------
   !> @brief  Subroutine which checks whether departure points are outside the

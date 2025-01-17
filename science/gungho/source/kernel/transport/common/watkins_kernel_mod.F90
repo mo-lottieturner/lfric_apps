@@ -19,7 +19,6 @@ use argument_mod,                only : arg_type, GH_SCALAR,       &
 use fs_continuity_mod,           only : W3, W2v, W2
 use constants_mod,               only : r_tran, i_def, EPS_R_TRAN
 use kernel_mod,                  only : kernel_type
-use log_mod,                     only : LOG_LEVEL_INFO, log_event
 use reference_element_mod,       only : E, S, N, W, B, T
 
 implicit none
@@ -248,8 +247,6 @@ subroutine watkins_code( nlayers,             &
 
   if (max_lip_new > max_lip_init + EPS_R_TRAN .AND. &
       max_lip_new > threshold + EPS_R_TRAN) then
-
-    call log_event('Watkins algorithm failed. Reverting to original wind', LOG_LEVEL_INFO)
     watkins_failures(map_w3_2d(1)) = 1_i_def
 
     ! Set the bottom value
@@ -264,7 +261,6 @@ subroutine watkins_code( nlayers,             &
     first_v_wind(map_w2v(1)+nlayers) = 0.0_r_tran
 
   else if (max_lip_new > threshold + EPS_R_TRAN) then
-    call log_event('Watkins algorithm failed to reduce Lipschitz numbers to below threshold', LOG_LEVEL_INFO)
     watkins_failures(map_w3_2d(1)) = 1_i_def
   end if
 

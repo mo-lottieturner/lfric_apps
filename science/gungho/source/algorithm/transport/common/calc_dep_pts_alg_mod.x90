@@ -56,7 +56,8 @@ module calc_dep_pts_alg_mod
                                                calculate_detj_upwind
 
   ! Other algorithms
-  use sci_field_minmax_alg_mod,          only: log_field_minmax
+  use sci_field_minmax_alg_mod,          only: log_field_minmax, &
+                                               get_field_minmax
   use copy_field_alg_mod,                only: copy_field
 
   ! Kernels
@@ -96,6 +97,7 @@ module calc_dep_pts_alg_mod
 
   private
   public :: calc_hori_dep_pts
+  public :: calc_ffsl_hori_dep_pts
   public :: calc_vert_dep_pts
   public :: select_detj_at_w2
 
@@ -110,17 +112,21 @@ contains
   !!          This is used by the dimensionally-split swept-area approach of
   !!          the flux form semi-Lagrangian (FFSL) scheme.
   !!
-  !> @param[in,out] dep_dist      Departure points in the horizontal, a W2h field
-  !> @param[in,out] frac_wind     The part of the horizontal wind corresponding
-  !!                              to the fractional part of the Courant number.
-  !!                              It is a W2h field
-  !> @param[in]     wind_n        Wind field at timestep n
-  !> @param[in]     wind_np1      Wind field at timestep n+1
-  !> @param[in]     dt            The model timestep length
-  subroutine calc_hori_dep_pts( dep_dist,         &
-                                frac_wind,        &
-                                wind_n,           &
-                                wind_np1,         &
+  !> @param[in,out] dep_dist     Departure points in the horizontal, a W2h field
+  !> @param[in,out] frac_wind    The part of the horizontal wind corresponding
+  !!                             to the fractional part of the Courant number.
+  !!                             It is a W2h field
+  !> @param[in,out] max_stencil_extent
+  !!                             The maximum stencil extent associated with this
+  !!                             set of departure points
+  !> @param[in]     wind_n       Wind field at timestep n
+  !> @param[in]     wind_np1     Wind field at timestep n+1
+  !> @param[in]     dt           The model timestep length
+  subroutine calc_hori_dep_pts( dep_dist,           &
+                                frac_wind,          &
+                                max_stencil_extent, &
+                                wind_n,             &
+                                wind_np1,           &
                                 dt )
 
     implicit none
@@ -128,6 +134,7 @@ contains
     ! Arguments
     type(r_tran_field_type), intent(inout) :: dep_dist
     type(r_tran_field_type), intent(inout) :: frac_wind
+    integer(kind=i_def),     intent(inout) :: max_stencil_extent
     type(r_tran_field_type), intent(in)    :: wind_n
     type(r_tran_field_type), intent(in)    :: wind_np1
     real(kind=r_tran),       intent(in)    :: dt
@@ -256,26 +263,22 @@ contains
                      extract_uv_kernel_type(dep_wind, wind_adv,                &
                                             face_selector_ew,                  &
                                             face_selector_ns),                 &
-                     inc_a_times_X(dt, dep_wind),                              &
-                     setval_c(frac_wind, 0.0_r_tran),                          &
-                     setval_c(dep_dist, 0.0_r_tran),                           &
-                     hori_dep_dist_ffsl_kernel_type(dep_dist,                  &
-                                                    frac_wind,                 &
-                                                    dep_wind,                  &
-                                                    detj_at_w3,                &
-                                                    stencil_extent,            &
-                                                    detj_at_w3_copy,           &
-                                                    stencil_extent,            &
-                                                    face_selector_ew,          &
-                                                    face_selector_ns,          &
-                                                    cfl_stencil_extent,        &
-                                                    cap_dep_points) )
-        nullify( detj_at_w3_copy )
+                     inc_a_times_X(dt, dep_wind) )
+
+        call calc_ffsl_hori_dep_pts(dep_dist, frac_wind, max_stencil_extent,   &
+                                    dep_wind, detj_at_w3, detj_at_w3_copy)
 
       case default
         call log_event( "Gungho: Invalid departure point method", LOG_LEVEL_ERROR )
 
     end select
+
+    ! Compute reconstruction stencil extent based on departure distance
+    ! Already computed for FFSL method, so don't need to in that case
+    if (horizontal_method /= horizontal_method_ffsl) then
+      call get_field_minmax(dep_dist, min_hori_dep, max_hori_dep)
+      max_stencil_extent = int( max( abs(min_hori_dep), abs(max_hori_dep) ) )
+    end if
 
     call log_field_minmax( LOG_LEVEL_DEBUG, "dep_dist", dep_dist )
 
@@ -284,6 +287,95 @@ contains
     if ( subroutine_timers ) call timer( 'transport.hori_dep_pts' )
 
   end subroutine calc_hori_dep_pts
+
+  !> @brief Calculates the horizontal FFSL departure points
+  !> @details Calculates horizontal departure points using the 'FFSL' method,
+  !!          of stepping through cells until the volume swept is equal to the
+  !!          velocity flux. This routine also computes the component of the
+  !!          horizontal wind associated with the fractional Courant number,
+  !!          and the maximum stencil extent.
+  !> @param[in,out] dep_dist           W2H field containing departure distances
+  !> @param[in,out] frac_wind          W2H field containing the part of the wind
+  !!                                   or mass flux associated with the
+  !!                                   fractional Courant number
+  !> @param[in,out] max_stencil_extent The maximum stencil extent associated
+  !!                                   with this set of departure points
+  !> @param[in]     wind               The horizontal wind or mass flux to
+  !!                                   compute the departure points for
+  !> @param[in]     detj_for_x         The volume or mass of cells used for
+  !!                                   computing the x-part of the dep points
+  !> @param[in]     detj_for_y         The volume or mass of cells used for
+  !!                                   computing the y-part of the dep points
+  subroutine calc_ffsl_hori_dep_pts(dep_dist, frac_wind, max_stencil_extent,   &
+                                    wind, detj_for_x, detj_for_y)
+
+    implicit none
+
+    ! Arguments
+    type(r_tran_field_type), intent(inout) :: dep_dist
+    type(r_tran_field_type), intent(inout) :: frac_wind
+    integer(kind=i_def)    , intent(inout) :: max_stencil_extent
+    type(r_tran_field_type),    intent(in) :: wind
+    type(r_tran_field_type),    intent(in) :: detj_for_x
+    type(r_tran_field_type),    intent(in) :: detj_for_y
+
+    ! Internal variables
+    type(mesh_type),           pointer :: mesh
+    type(integer_field_type),  pointer :: face_selector_ew
+    type(integer_field_type),  pointer :: face_selector_ns
+    type(integer_field_type)           :: error_flag_field
+    integer(kind=i_def)                :: error_flag_min, error_flag_max
+    integer(kind=i_def)                :: stencil_extent
+    integer(kind=i_def)                :: cfl_stencil_extent
+    logical(kind=l_def)                :: cap_dep_points
+    real(kind=r_tran)                  :: dep_min
+    real(kind=r_tran)                  :: dep_max
+
+    mesh => wind%get_mesh()
+    face_selector_ew => get_face_selector_ew(mesh%get_id())
+    face_selector_ns => get_face_selector_ns(mesh%get_id())
+    call error_flag_field%initialise( face_selector_ew%get_function_space() )
+
+    ! Psyclone requires these two variables to be identified differently
+    stencil_extent = dep_pt_stencil_extent
+    cfl_stencil_extent = stencil_extent
+    cap_dep_points = (horizontal_limit == horizontal_limit_cap)
+
+    call invoke( setval_c(frac_wind, 0.0_r_tran),                              &
+                 setval_c(dep_dist, 0.0_r_tran),                               &
+                 int_setval_c(error_flag_field, 0_i_def),                      &
+                 hori_dep_dist_ffsl_kernel_type(dep_dist,                      &
+                                                frac_wind,                     &
+                                                wind,                          &
+                                                detj_for_x,                    &
+                                                stencil_extent,                &
+                                                detj_for_y,                    &
+                                                stencil_extent,                &
+                                                face_selector_ew,              &
+                                                face_selector_ns,              &
+                                                error_flag_field,              &
+                                                cfl_stencil_extent,            &
+                                                cap_dep_points) )
+
+    call get_field_minmax(dep_dist, dep_min, dep_max)
+    max_stencil_extent = int( max( abs(dep_max), abs(dep_min) ) )
+
+    ! Check error flag field, if departure points aren't capped
+    if (.not. cap_dep_points) then
+      call get_field_minmax(error_flag_field, error_flag_min, error_flag_max)
+      if (error_flag_max > 0) then
+        call log_event(                                                        &
+            'Departure points have exceeded the stencil extent, and it is no ' &
+            // 'longer possible to transport fields stably. Either: '          &
+            // '(a) increase the maximum stencil extent, '                     &
+            //' (b) set the horizontal departure points to be capped, or '     &
+            // '(c) use a smaller time step.',                                 &
+            LOG_LEVEL_ERROR                                                    &
+        )
+      end if
+    end if
+
+  end subroutine calc_ffsl_hori_dep_pts
 
 
   !===========================================================================!

@@ -24,8 +24,6 @@ use argument_mod,      only: arg_type, func_type,       &
                              GH_EVALUATOR
 use constants_mod,     only: r_def, r_tran, i_def, l_def, LARGE_REAL_POSITIVE
 use fs_continuity_mod, only: Wchi
-use log_mod,           only: log_event, &
-                             LOG_LEVEL_ERROR
 
 implicit none
 
@@ -160,8 +158,6 @@ subroutine remap_on_extended_mesh_code(nlayers,                              &
         interp_dir = interp_dir_alpha
       case (12, 14, 21, 23, 35, 36, 45, 46, 52, 54, 61, 63)
         interp_dir = interp_dir_beta
-      case default
-        call log_event('Invalid panel edge',LOG_LEVEL_ERROR)
     end select
 
     ! The stencils are ordered (W,S,E,N) on their local panel with (W,E) in the

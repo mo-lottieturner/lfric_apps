@@ -28,7 +28,6 @@ use transport_enumerated_types_mod, only : vertical_monotone_none,           &
                                            vertical_monotone_order_constant, &
                                            vertical_monotone_order_linear,   &
                                            vertical_monotone_order_high
-use log_mod,  only: log_event, LOG_LEVEL_ERROR
 implicit none
 
 private

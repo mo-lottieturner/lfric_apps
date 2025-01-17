@@ -26,8 +26,6 @@ module ffsl_unify_flux_kernel_mod
   use constants_mod,      only : r_tran, i_def, r_def
   use fs_continuity_mod,  only : W2h, W2broken
   use kernel_mod,         only : kernel_type
-  use log_mod,            only : LOG_LEVEL_ERROR, &
-                                 log_event
 
   implicit none
 
@@ -328,8 +326,6 @@ contains
               end do
           end select
         end do
-     case default
-      call log_event('Invalid panel',LOG_LEVEL_ERROR)
     end select
 
   end subroutine ffsl_unify_flux_kernel_code

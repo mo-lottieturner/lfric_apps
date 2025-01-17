@@ -24,13 +24,11 @@ use argument_mod,                only : arg_type,                  &
                                         STENCIL, X1D, Y1D,         &
                                         GH_LOGICAL, CELL_COLUMN,   &
                                         ANY_DISCONTINUOUS_SPACE_2, &
-                                        ANY_DISCONTINUOUS_SPACE_3
+                                        ANY_DISCONTINUOUS_SPACE_3, &
+                                        GH_READWRITE
 use fs_continuity_mod,           only : W3, W2h
 use constants_mod,               only : r_tran, i_def, l_def
 use kernel_mod,                  only : kernel_type
-use log_mod,                     only : log_event,         &
-                                        log_scratch_space, &
-                                        LOG_LEVEL_ERROR
 use reference_element_mod,       only : E, W, N, S
 
 implicit none
@@ -43,7 +41,7 @@ private
 !> The type declaration for the kernel. Contains the metadata needed by the Psy layer
 type, public, extends(kernel_type) :: hori_dep_dist_ffsl_kernel_type
   private
-  type(arg_type) :: meta_args(9) = (/                                       &
+  type(arg_type) :: meta_args(10) = (/                                      &
        arg_type(GH_FIELD,  GH_REAL, GH_WRITE,   ANY_DISCONTINUOUS_SPACE_2), & ! dep_dist
        arg_type(GH_FIELD,  GH_REAL, GH_WRITE,   ANY_DISCONTINUOUS_SPACE_2), & ! frac_dry_flux
        arg_type(GH_FIELD,  GH_REAL, GH_READ,    ANY_DISCONTINUOUS_SPACE_2), & ! dry_flux
@@ -51,6 +49,8 @@ type, public, extends(kernel_type) :: hori_dep_dist_ffsl_kernel_type
        arg_type(GH_FIELD,  GH_REAL, GH_READ,    W3, STENCIL(Y1D)),          & ! dry_mass_for_y
        arg_type(GH_FIELD,  GH_INTEGER, GH_READ, ANY_DISCONTINUOUS_SPACE_3), & ! face_selector ew
        arg_type(GH_FIELD,  GH_INTEGER, GH_READ, ANY_DISCONTINUOUS_SPACE_3), & ! face_selector ns
+       arg_type(GH_FIELD,  GH_INTEGER, GH_READWRITE,                        &
+                                                ANY_DISCONTINUOUS_SPACE_3), & ! error_flag
        arg_type(GH_SCALAR, GH_INTEGER, GH_READ),                            & ! stencil_extent
        arg_type(GH_SCALAR, GH_LOGICAL, GH_READ)                             & ! cap_dep_points
        /)
@@ -83,6 +83,8 @@ contains
 !> @param[in]     stencil_map_y     Map of DoFs in the stencil for mass field
 !> @param[in]     face_selector_ew  2D field indicating which faces to loop over in x
 !> @param[in]     face_selector_ns  2D field indicating which faces to loop over in y
+!> @param[in,out] error_flag        2D field for storing error flag, only used
+!!                                  optionally if departure points not capped
 !> @param[in]     stencil_extent    Max number of stencil cells in one direction
 !> @param[in]     cap_dep_points    Flag for whether departure points should be
 !!                                  capped if they exceed the stencil depth
@@ -107,6 +109,7 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
                                     stencil_map_y,       &
                                     face_selector_ew,    &
                                     face_selector_ns,    &
+                                    error_flag,          &
                                     stencil_extent,      &
                                     cap_dep_points,      &
                                     ndf_w2h,             &
@@ -136,6 +139,7 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
   integer(kind=i_def), intent(in)    :: stencil_map_y(ndf_w3, stencil_size_y)
   integer(kind=i_def), intent(in)    :: face_selector_ew(undf_w3_2d)
   integer(kind=i_def), intent(in)    :: face_selector_ns(undf_w3_2d)
+  integer(kind=i_def), intent(inout) :: error_flag(undf_w3_2d)
   real(kind=r_tran),   intent(in)    :: dry_mass_for_x(undf_w3)
   real(kind=r_tran),   intent(in)    :: dry_mass_for_y(undf_w3)
   real(kind=r_tran),   intent(in)    :: dry_flux(undf_w2h)
@@ -257,10 +261,10 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
           frac_dep_dist = 0.0_r_tran
 
         else
-          ! Departure point has exceeded stencil depth so throw an error
-          write(log_scratch_space, '(A,I8)') 'hori_x_dep_dist: departure ' // &
-            'points have exceeded stencil depth of ', stencil_extent
-          call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+          ! Departure point has exceeded stencil depth so indicate that an
+          ! error needs to be thrown, rather than either seg-faulting or
+          ! having the model fail ungracefully at a later point
+          error_flag(map_w3_2d(1)) = error_flag(map_w3_2d(1)) + 1_i_def
         end if
 
         ! Set the values of the output fields
@@ -372,10 +376,10 @@ subroutine hori_dep_dist_ffsl_code( nlayers,             &
           frac_dep_dist = 0.0_r_tran
 
         else
-          ! Departure point has exceeded stencil depth so throw an error
-          write(log_scratch_space, '(A,I8)') 'hori_y_dep_dist: departure ' // &
-            'points have exceeded stencil depth of ', stencil_extent
-          call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+          ! Departure point has exceeded stencil depth so indicate that an
+          ! error needs to be thrown, rather than either seg-faulting or
+          ! having the model fail ungracefully at a later point
+          error_flag(map_w3_2d(1)) = error_flag(map_w3_2d(1)) + 1_i_def
         end if
 
         ! Set the values of the output fields

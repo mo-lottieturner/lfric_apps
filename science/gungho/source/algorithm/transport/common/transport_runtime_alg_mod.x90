@@ -296,8 +296,9 @@ contains
                                             rho_d_n_rdef,         &
                                             shifted_mesh )
 
-    use calc_dep_pts_alg_mod,          only: calc_vert_dep_pts, &
-                                             calc_hori_dep_pts, &
+    use calc_dep_pts_alg_mod,          only: calc_vert_dep_pts,      &
+                                             calc_hori_dep_pts,      &
+                                             calc_ffsl_hori_dep_pts, &
                                              select_detj_at_w2
     use compute_sl_coefficients_alg_mod, &
                                        only: compute_vert_quintic_coefficients_alg, &
@@ -326,7 +327,6 @@ contains
     use fv_difference_x_kernel_mod,    only: fv_difference_x_kernel_type
     use fv_difference_y_kernel_mod,    only: fv_difference_y_kernel_type
     use fv_difference_z_kernel_mod,    only: fv_difference_z_kernel_type
-    use hori_dep_dist_ffsl_kernel_mod, only: hori_dep_dist_ffsl_kernel_type
     use vert_dep_dist_ffsl_kernel_mod, only: vert_dep_dist_ffsl_kernel_type
     use watkins_kernel_mod,            only: watkins_kernel_type
 
@@ -355,8 +355,6 @@ contains
     integer(kind=i_def)              :: mesh_idx, num_compute_meshes
     integer(kind=i_def)              :: n_steps, n_meshes, i_coef, step
     integer(kind=i_def)              :: n_steps_with_substep, np1_steps_with_substep
-    integer(kind=i_def)              :: stencil_extent_xy
-    logical(kind=l_def)              :: cap_dep_points
     type(mesh_type),         pointer :: mesh => null()
     type(local_mesh_type),   pointer :: local_mesh => null()
     type(r_tran_field_type), pointer :: wind_n   => null()
@@ -368,7 +366,6 @@ contains
     type(r_tran_field_type)          :: detj_at_w2_transport
     type(r_tran_field_type)          :: remapped_unity, adv_unity_xy
     real(kind=r_tran)                :: cfl_min, cfl_max
-    real(kind=r_tran)                :: dep_min, dep_max
     real(kind=r_tran)                :: h_cfl_min, h_cfl_max
     real(kind=r_tran)                :: v_cfl_min, v_cfl_max
     real(r_tran)                     :: cast_dt, half_dt, step_dt
@@ -799,24 +796,19 @@ contains
           half_dt = 0.5_r_tran * cast_dt
           call calc_hori_dep_pts( self%dep_dist_xy_half_w2(mesh_idx),          &
                                   self%frac_wind_xy_half(mesh_idx),            &
+                                  self%dep_stencil_extent_xy(mesh_idx),        &
                                   dep_pt_wind_n,                               &
                                   dep_pt_wind_np1,                             &
                                   half_dt )
 
-          ! Get the required stencil size from the departure points
-          call get_field_minmax(self%dep_dist_xy_half_w2(mesh_idx), dep_min, dep_max)
-          self%dep_stencil_extent_xy(mesh_idx) = int( max( abs(dep_max), abs(dep_min) ) )
-
         else
           call calc_hori_dep_pts( self%dep_dist_xy_w2(mesh_idx),               &
                                   self%frac_wind_xy(mesh_idx),                 &
+                                  self%dep_stencil_extent_xy(mesh_idx),        &
                                   dep_pt_wind_n,                               &
                                   dep_pt_wind_np1,                             &
                                   cast_dt )
 
-          ! Get the required stencil size from the departure points
-          call get_field_minmax(self%dep_dist_xy_w2(mesh_idx), dep_min, dep_max)
-          self%dep_stencil_extent_xy(mesh_idx) = int( max( abs(dep_max), abs(dep_min) ) )
         end if
       end if
 
@@ -1245,11 +1237,6 @@ contains
         w2h_fs => function_space_collection%get_fs(tmp_mesh, element_order, W2h)
         w2v_fs => function_space_collection%get_fs(tmp_mesh, element_order, W2v)
         detj_at_w3 => get_detj_at_w3_r_tran(tmp_mesh%get_id())
-
-        stencil_extent_xy = dep_pt_stencil_extent
-        cap_dep_points = (horizontal_limit == horizontal_limit_cap)
-        face_selector_ew => get_face_selector_ew(tmp_mesh%get_id())
-        face_selector_ns => get_face_selector_ns(tmp_mesh%get_id())
         panel_id => get_panel_id(tmp_mesh%get_id())
 
         ! Set first unity and volume fields
@@ -1346,44 +1333,23 @@ contains
 
             ! Compute fractional wind and departure points from transported unity
             call invoke( setval_X(detj_copy, self%detj_unity(mesh_idx, step)), &
-                         a_times_X(hori_wind_dt, step_dt, hori_wind),          &
-                         setval_c(self%unity_dep_dist_ixy(mesh_idx, step),     &
-                                  0.0_r_tran),                                 &
-                         setval_c(self%unity_frac_wind_ixy(mesh_idx, step),    &
-                                  0.0_r_tran),                                 &
-                         hori_dep_dist_ffsl_kernel_type(                       &
-                                  self%unity_dep_dist_ixy(mesh_idx, step),     &
-                                  self%unity_frac_wind_ixy(mesh_idx, step),    &
-                                  hori_wind_dt,                                &
-                                  self%detj_unity(mesh_idx, step),             &
-                                  stencil_extent_xy,                           &
-                                  detj_copy,                                   &
-                                  stencil_extent_xy,                           &
-                                  face_selector_ew,                            &
-                                  face_selector_ns,                            &
-                                  dep_pt_stencil_extent,                       &
-                                  cap_dep_points),                             &
-                         setval_c(self%unity_dep_dist_oxy(mesh_idx, step),     &
-                                  0.0_r_tran),                                 &
-                         setval_c(self%unity_frac_wind_oxy(mesh_idx, step),    &
-                                  0.0_r_tran),                                 &
-                         hori_dep_dist_ffsl_kernel_type(                       &
-                                  self%unity_dep_dist_oxy(mesh_idx, step),     &
-                                  self%unity_frac_wind_oxy(mesh_idx, step),    &
-                                  hori_wind_dt,                                &
-                                  self%detj_unity_y(mesh_idx, step),           &
-                                  stencil_extent_xy,                           &
-                                  self%detj_unity_x(mesh_idx, step),           &
-                                  stencil_extent_xy,                           &
-                                  face_selector_ew,                            &
-                                  face_selector_ns,                            &
-                                  dep_pt_stencil_extent,                       &
-                                  cap_dep_points) )
-            ! Determine stencil extent
-            call get_field_minmax(self%unity_dep_dist_ixy(mesh_idx, step), dep_min, dep_max)
-            self%unity_stencil_extent_ixy(mesh_idx, step) = MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
-            call get_field_minmax(self%unity_dep_dist_oxy(mesh_idx, step), dep_min, dep_max)
-            self%unity_stencil_extent_oxy(mesh_idx, step) = MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
+                         a_times_X(hori_wind_dt, step_dt, hori_wind) )
+            call calc_ffsl_hori_dep_pts(                                       &
+                                self%unity_dep_dist_ixy(mesh_idx, step),       &
+                                self%unity_frac_wind_ixy(mesh_idx, step),      &
+                                self%unity_stencil_extent_ixy(mesh_idx, step), &
+                                hori_wind_dt,                                  &
+                                self%detj_unity(mesh_idx, step),               &
+                                detj_copy                                      &
+            )
+            call calc_ffsl_hori_dep_pts(                                       &
+                                self%unity_dep_dist_oxy(mesh_idx, step),       &
+                                self%unity_frac_wind_oxy(mesh_idx, step),      &
+                                self%unity_stencil_extent_oxy(mesh_idx, step), &
+                                hori_wind_dt,                                  &
+                                self%detj_unity_y(mesh_idx, step),             &
+                                self%detj_unity_x(mesh_idx, step)              &
+            )
 
           ! VERTICAL TRANSPORT -------------------------------------------------
           else if (self%direction_w2_fs(step) == W2V) then
@@ -2304,7 +2270,7 @@ contains
     use base_mesh_config_mod,                 only: topology, geometry,        &
                                                     topology_fully_periodic,   &
                                                     geometry_spherical
-    use hori_dep_dist_ffsl_kernel_mod,        only: hori_dep_dist_ffsl_kernel_type
+    use calc_dep_pts_alg_mod,                 only: calc_ffsl_hori_dep_pts
     use vert_dep_dist_ffsl_kernel_mod,        only: vert_dep_dist_ffsl_kernel_type
     use departure_points_config_mod,          only: horizontal_limit, &
                                                     horizontal_limit_cap
@@ -2317,13 +2283,11 @@ contains
 
     integer(kind=i_def)                :: mesh_id, i, step
     integer(kind=i_def)                :: function_space
-    integer(kind=i_def)                :: stencil_extent
     integer(kind=i_def)                :: max_stencil_extent
     integer(kind=i_def)                :: num_steps
     integer(kind=i_def)                :: sub_step, num_sub_steps
     integer(kind=i_def)                :: step_with_substep
     integer(kind=i_def)                :: step_p1_with_substep
-    real(kind=r_tran)                  :: dep_min, dep_max
     type(mesh_type),           pointer :: twod_mesh => null()
     type(function_space_type), pointer :: w2_fs => null()
     type(function_space_type), pointer :: w3_2d_fs => null()
@@ -2333,8 +2297,6 @@ contains
     type(r_tran_field_type),   pointer :: dry_mass_y => null()
     type(r_tran_field_type),   pointer :: dry_flux => null()
     type(field_type),          pointer :: panel_id => null()
-    type(integer_field_type),  pointer :: face_selector_ew => null()
-    type(integer_field_type),  pointer :: face_selector_ns => null()
     logical(kind=l_def)                :: any_eqn_consistent, cap_dep_points
     logical(kind=l_def)                :: any_vert_dep_dist, any_hori_dep_dist
     logical(kind=l_def)                :: any_consistent_swift
@@ -2356,8 +2318,6 @@ contains
       mesh_id = mesh%get_id()
       i = self%idx_from_mesh_id(mesh_id)
       panel_id => get_panel_id(mesh_id)
-      face_selector_ew => get_face_selector_ew(mesh_id)
-      face_selector_ns => get_face_selector_ns(mesh_id)
 
       num_steps = self%num_dry_steps
       num_sub_steps = self%number_total_substeps
@@ -2376,7 +2336,6 @@ contains
 
           ! Determine direction of step from function space
           function_space = dry_flux%which_function_space()
-          stencil_extent = dep_pt_stencil_extent
 
           ! ------------------------------------------------------------------ !
           ! Vertical step
@@ -2413,30 +2372,12 @@ contains
             end if
 
             ! Compute tracer departure points
-            call invoke(                                                       &
-                    setval_c(self%tracer_dep_dist_ixy(i,step_with_substep),    &
-                             0.0_r_tran),                                      &
-                    setval_c(self%dry_frac_flux_ixy(i,step_with_substep),      &
-                             0.0_r_tran),                                      &
-                    hori_dep_dist_ffsl_kernel_type(                            &
-                                self%tracer_dep_dist_ixy(i,step_with_substep), &
-                                self%dry_frac_flux_ixy(i,step_with_substep),   &
-                                dry_flux,                                      &
-                                dry_mass, stencil_extent,                      &
-                                dry_mass_copy, stencil_extent,                 &
-                                face_selector_ew,                              &
-                                face_selector_ns,                              &
-                                dep_pt_stencil_extent,                         &
-                                cap_dep_points) )
-
-            ! Get the required stencil size from the departure points
-            call get_field_minmax(self%tracer_dep_dist_ixy(i,step_with_substep), &
-                                  dep_min, dep_max)
-            self%tracer_stencil_extent_ixy(i,step_with_substep) = &
-              MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
-
-            call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_ixy', &
-                                  self%tracer_dep_dist_ixy(i,step_with_substep))
+            call calc_ffsl_hori_dep_pts(                                       &
+                          self%tracer_dep_dist_ixy(i,step_with_substep),       &
+                          self%dry_frac_flux_ixy(i,step_with_substep),         &
+                          self%tracer_stencil_extent_ixy(i,step_with_substep), &
+                          dry_flux, dry_mass, dry_mass_copy                    &
+            )
 
             ! Outer step quantities ----------------------------------------------
             ! Determine if outer fields needed from initialisation of dry_mass_ffsl
@@ -2469,30 +2410,13 @@ contains
                                                         max_stencil_extent)
               end if
 
-              ! Compute tracer departure points
-              call invoke(                                                     &
-                      setval_c(self%tracer_dep_dist_oxy(i,step_with_substep),  &
-                               0.0_r_tran),                                    &
-                      setval_c(self%dry_frac_flux_oxy(i,step_with_substep),    &
-                               0.0_r_tran),                                    &
-                      hori_dep_dist_ffsl_kernel_type(                          &
-                                self%tracer_dep_dist_oxy(i,step_with_substep), &
-                                self%dry_frac_flux_oxy(i,step_with_substep),   &
-                                dry_flux,                                      &
-                                dry_mass_y, stencil_extent,                    &
-                                dry_mass_x, stencil_extent,                    &
-                                face_selector_ew,                              &
-                                face_selector_ns,                              &
-                                dep_pt_stencil_extent,                         &
-                                cap_dep_points) )
-
-              call log_field_minmax(LOG_LEVEL_DEBUG, 'tracer_dep_dist_oxy', &
-                                    self%tracer_dep_dist_oxy(i,step_with_substep))
-
-              ! Get the required stencil size from the departure points
-              call get_field_minmax(self%tracer_dep_dist_oxy(i,step_with_substep), dep_min, dep_max)
-              self%tracer_stencil_extent_oxy(i,step_with_substep) = &
-                MAX( int(abs(dep_max), i_def), int(abs(dep_min), i_def) )
+            ! Compute tracer departure points
+            call calc_ffsl_hori_dep_pts(                                       &
+                          self%tracer_dep_dist_oxy(i,step_with_substep),       &
+                          self%dry_frac_flux_oxy(i,step_with_substep),         &
+                          self%tracer_stencil_extent_oxy(i,step_with_substep), &
+                          dry_flux, dry_mass_y, dry_mass_x                     &
+            )
 
             end if  ! Outer step variables
           end if  ! Horizontal
@@ -2501,7 +2425,7 @@ contains
     end if  ! Whether consistent quantities need computing
 
     nullify(w2_fs, w3_2d_fs, dry_mass, dry_mass_x, dry_mass_y, &
-            dry_flux, twod_mesh, panel_id, face_selector_ew, face_selector_ns)
+            dry_flux, twod_mesh, panel_id)
 
     if ( subroutine_timers ) call timer('transport.runtime_consistent')
 
