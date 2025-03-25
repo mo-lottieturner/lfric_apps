@@ -1,17 +1,19 @@
-@@ -1,10 +1,10 @@
+@@ -1,26 +1,26 @@
 -module adj_vertical_mass_flux_kernel_mod
 +module atl_vertical_mass_flux_kernel_mod
    use argument_mod, only : any_discontinuous_space_1, any_w2, arg_type, cell_column, func_type, gh_field, gh_inc, gh_read, &
- &gh_real, gh_write
+-&gh_real, gh_write
++&gh_real, gh_readinc
    use constants_mod, only : i_def, l_def, r_def
    use kernel_mod, only : kernel_type
    implicit none
 -  type, public, extends(kernel_type) :: adj_vertical_mass_flux_kernel_type
 +  type, public, extends(kernel_type) :: atl_vertical_mass_flux_kernel_type
    type(ARG_TYPE) :: META_ARGS(4) = (/ &
-     arg_type(gh_field, gh_real, gh_write, any_w2), &
+-    arg_type(gh_field, gh_real, gh_write, any_w2), &
++    arg_type(gh_field, gh_real, gh_readinc, any_w2), &
      arg_type(gh_field, gh_real, gh_read, any_w2), &
-@@ -12,15 +12,15 @@
+     arg_type(gh_field, gh_real, gh_inc, any_w2), &
      arg_type(gh_field, gh_real, gh_read, any_discontinuous_space_1)/)
    INTEGER :: OPERATES_ON = cell_column
    CONTAINS
