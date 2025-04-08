@@ -53,7 +53,10 @@ module semi_implicit_timestep_alg_mod
                                         exner_from_eos
   use io_config_mod,              only: subroutine_timers,                    &
                                         write_conservation_diag, write_diag,  &
-                                        use_xios_io, diagnostic_frequency
+                                        use_xios_io, diagnostic_frequency,    &
+                                        checkpoint_read
+  use initialization_config_mod,  only: init_option,               &
+                                        init_option_checkpoint_dump
   use mixed_solver_config_mod,    only: guess_np1, reference_reset_time
   use timestepping_config_mod,    only: alpha,                                &
                                         outer_iterations, inner_iterations,   &
@@ -680,13 +683,24 @@ contains
     ! The reference_reset_time is specified in the configuration namelist.
     ! Note that this reset can only occur at most once per timestep.
     reference_reset_freq = int(reference_reset_time / cast_dt, i_def)
-    checkpoint_reference_fields =  mod(model_clock%get_first_step()-1, reference_reset_freq) /= 0 .or.  &
-                                      mod(model_clock%get_last_step(),    reference_reset_freq) /= 0
 
     if ( mod(model_clock%get_step() - 1_i_def, reference_reset_freq) == 0_i_def ) then
       ! Compute semi-implicit operators with current model state
       call compute_si_operators(self%state(igh_t), self%state(igh_d), self%state(igh_p), model_clock, moist_dyn)
 
+      checkpoint_reference_fields = &
+           mod(model_clock%get_first_step()-1, reference_reset_freq) /= 0 .or. &
+           mod(model_clock%get_last_step(),    reference_reset_freq) /= 0
+      if (checkpoint_read .or. init_option == init_option_checkpoint_dump) then
+        ! If the first timestep of this run IS an operator calc timestep, but
+        ! the first timestep of the next run IS NOT, then checkpoint_flag
+        ! must be false to allow model to start running, as the operator
+        ! prognostics will not be in the initial dump
+        if (mod(model_clock%get_first_step()-1, reference_reset_freq) == 0 .and. &
+            mod(model_clock%get_last_step(),    reference_reset_freq) /= 0) then
+          checkpoint_reference_fields = .false.
+        end if
+      end if
       ! Copy over model state for checkpointing if required
       if (checkpoint_reference_fields) then
         call prognostic_fields%get_field('theta_ref', theta_ref)

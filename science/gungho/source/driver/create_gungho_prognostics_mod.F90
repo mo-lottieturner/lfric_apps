@@ -31,7 +31,7 @@ module create_gungho_prognostics_mod
   use fs_continuity_mod,              only : W0, W2, W3, Wtheta, W2H, W2V
   use function_space_collection_mod , only : function_space_collection
   use log_mod,                        only : log_event,         &
-                                             LOG_LEVEL_INFO
+                                             LOG_LEVEL_INFO, LOG_LEVEL_WARNING
   use mesh_mod,                       only : mesh_type
   use mixed_solver_config_mod,        only : reference_reset_time
   use mr_indices_mod,                 only : nummr, &
@@ -40,6 +40,7 @@ module create_gungho_prognostics_mod
                                              moist_dyn_names
   use initialization_config_mod,      only: init_option,               &
                                             init_option_checkpoint_dump
+  use io_config_mod,                  only: checkpoint_read, checkpoint_write
   use transport_config_mod,           only : transport_ageofair
   use clock_mod,                      only : clock_type
   implicit none
@@ -97,6 +98,27 @@ contains
     checkpoint_flag =                                                &
       mod(clock%get_first_step()-1, reference_reset_freq) /= 0 .or.  &
       mod(clock%get_last_step(),    reference_reset_freq) /= 0
+    if (checkpoint_read .or. &
+         init_option == init_option_checkpoint_dump) then
+      ! If the first timestep of this run IS an operator calc timestep, but the
+      ! first timestep of the next run IS NOT, then checkpoint_flag
+      ! must be false to allow model to start running, as the operator
+      ! prognostics will not be in the initial dump
+      if (mod(clock%get_first_step()-1, reference_reset_freq) == 0 .and.       &
+          mod(clock%get_last_step(),    reference_reset_freq) /= 0) then
+        checkpoint_flag = .false.
+        if (checkpoint_write) then
+          ! Any dump written will be incomplete, and the following run
+          ! will need to start on an operator calc timestep - print user a
+          ! warning
+          call log_event('Danger: start of this run is an operator calc ' //   &
+                         'timestep, but start of next run is not. ' //         &
+                         'Written dump will be incomplete. Next run ' //       &
+                         'must start with an operator calc timestep',          &
+                         LOG_LEVEL_WARNING)
+        end if
+      end if
+    end if
     is_empty = .not. checkpoint_flag
     call proc%apply(make_spec('theta_ref', main%none, Wtheta, empty=is_empty, &
                     order_h=ord_h, order_v=ord_v, ckp=checkpoint_flag))

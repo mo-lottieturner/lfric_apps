@@ -115,7 +115,7 @@ module create_physics_prognostics_mod
   use mphys_inputs_mod, only: casim_iopt_act, l_mcr_precfrac
   use bl_option_mod, only: l_calc_tau_at_p
   use cloud_inputs_mod, only: l_pc2_homog_conv_pressure
-  use io_config_mod,                  only : checkpoint_read
+  use io_config_mod,                  only : checkpoint_read, checkpoint_write
   use initialization_config_mod,      only : init_option,                       &
                                              init_option_checkpoint_dump
 #endif
@@ -296,23 +296,31 @@ contains
     if (radiation == radiation_socrates) then
       ! Checkpoint unless both the first timestep of this run and the
       ! first timestep of the next run are radiation timesteps
+      checkpoint_flag =                                                        &
+        mod(clock%get_first_step()-1, n_radstep) /= 0 .or.                     &
+        mod(clock%get_last_step(),    n_radstep) /= 0
 
       if (checkpoint_read .or.                                                 &
           init_option == init_option_checkpoint_dump) then
-        ! warn about asymmetric case;
-        ! if there is no subsequent XIOS read error, everthing's fine
-        ! after all
-        if (mod(clock%get_first_step()-1, n_radstep) /=                        &
-            mod(clock%get_last_step(),    n_radstep) ) then
-          call log_event('Danger: start and end steps should be ' //           &
-                          'either both radiation timesteps or neither',        &
-                          LOG_LEVEL_WARNING)
-        end if
-      endif
-
-      checkpoint_flag =                                                         &
-        mod(clock%get_first_step()-1, n_radstep) /= 0 .or.                      &
-        mod(clock%get_last_step(),    n_radstep) /= 0
+        ! If the first timestep of this run IS a radiation timestep, but the
+        ! first timestep of the next run IS NOT, then checkpoint_flag
+        ! must be false to allow model to start running, as the _rts
+        ! prognostics will not be in the initial dump
+        if (mod(clock%get_first_step()-1, n_radstep) == 0 .and.                &
+            mod(clock%get_last_step(),    n_radstep) /= 0) then
+          checkpoint_flag = .false.
+          if (checkpoint_write) then
+            ! Any dump written will be incomplete, and the following run
+            ! will need to start on a radiation timestep - print user a
+            ! warning
+            call log_event('Danger: start of this run is a radiation ' //      &
+                           'timestep, but start of next run is not. ' //       &
+                           'Written dump will be incomplete. Next run ' //     &
+                           'must start with a radiation timestep',             &
+                           LOG_LEVEL_WARNING)
+          end if
+        endif
+      end if
     else
       checkpoint_flag = .false.
     end if
@@ -412,23 +420,28 @@ contains
     ! Checkpoint unless both the first timestep of this run and the
     ! first timestep of the next run are radaer timesteps
     if (l_radaer) then
+      checkpoint_flag =                                                        &
+        mod(clock%get_first_step()-1, n_radaer_step*n_radstep) /= 0 .or.       &
+        mod(clock%get_last_step(),    n_radaer_step*n_radstep) /= 0
 
-      if (checkpoint_read .or.                                                  &
+      if (checkpoint_read .or.                                                 &
           init_option == init_option_checkpoint_dump) then
-        ! warn about asymmetric case;
-        ! if there is no subsequent XIOS read error, everthing's fine
-        ! after all
-        if (mod(clock%get_first_step()-1, n_radaer_step*n_radstep) /=           &
-            mod(clock%get_last_step(),    n_radaer_step*n_radstep)) then
-          call log_event('Danger: start and end steps should be ' //            &
-                         'either both radiation supersteps or neither',         &
-                          LOG_LEVEL_WARNING)
+        ! If the first timestep of this run IS a radaer timestep, but the
+        ! first timestep of the next run IS NOT, then checkpoint_flag
+        ! must be false to allow model to start running, as the radaer
+        ! prognostics will not be in the initial dump
+        if (mod(clock%get_first_step()-1, n_radaer_step*n_radstep) == 0 .and.  &
+            mod(clock%get_last_step(),    n_radaer_step*n_radstep) /= 0) then
+          checkpoint_flag = .false.
+          if (checkpoint_write) then
+            call log_event('Danger: start of this run is a radaer ' //         &
+                           'timestep, but start of next run is not. ' //       &
+                           'Written dump will be incomplete. Next run ' //     &
+                           'must start with a radaer timestep',                &
+                           LOG_LEVEL_WARNING)
+          end if
         endif
       end if
-
-      checkpoint_flag =                                                         &
-        mod(clock%get_first_step()-1, n_radaer_step*n_radstep) /= 0 .or.        &
-        mod(clock%get_last_step(),    n_radaer_step*n_radstep) /= 0
     else
       checkpoint_flag = .false.
     end if
