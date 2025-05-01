@@ -388,7 +388,7 @@ module init_gungho_lbcs_alg_mod
 
     mesh        => lbc_exner%get_mesh()
     w3_lbc_mask => get_lbc_mask(W3, mesh%get_id())
-    wtheta_lbc_mask => get_lbc_mask(W3, mesh%get_id())
+    wtheta_lbc_mask => get_lbc_mask(Wtheta, mesh%get_id())
 
     call log_field_masked_minmax( LOG_LEVEL_DEBUG, 'lbc_theta', &
                                   lbc_theta, wtheta_lbc_mask )
