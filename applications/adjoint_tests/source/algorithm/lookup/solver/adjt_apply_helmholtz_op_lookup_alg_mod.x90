@@ -45,7 +45,7 @@ module adjt_apply_helmholtz_op_lookup_alg_mod
 
     use apply_helmholtz_operator_kernel_mod,     only: apply_helmholtz_operator_kernel_type
     use adj_lookup_table_generators_alg_mod, only: create_lookup_apply_helmholtz_op
-    use invoke_adj_apply_helmholtz_op_lookup_kernel_mod, only: invoke_adj_apply_helmholtz_op_lookup_kernel
+    use invoke_adj_a_h_o_lookup_kernel_mod,  only: invoke_adj_a_h_o_lookup_kernel
 
     implicit none
 
@@ -142,14 +142,14 @@ module adjt_apply_helmholtz_op_lookup_alg_mod
     set_counts_field => lookup % get_set_count_field()
     nindices = lookup % get_nindices()
 
-    call invoke_adj_apply_helmholtz_op_lookup_kernel( vector_mx,          &
-                                                      vector_amx,         &
-                                                      helmholtz_operator, &
-                                                      lookup_field,       &
-                                                      set_counts_field,   &
-                                                      stencil_extent,     &
-                                                      nindices,           &
-                                                      lam_mesh )
+    call invoke_adj_a_h_o_lookup_kernel( vector_mx,          &
+                                         vector_amx,         &
+                                         helmholtz_operator, &
+                                         lookup_field,       &
+                                         set_counts_field,   &
+                                         stencil_extent,     &
+                                         nindices,           &
+                                         lam_mesh )
 
     ! <AMx,x>
     call invoke( x_innerproduct_y( inner2, vector_amx, vector_x ) )

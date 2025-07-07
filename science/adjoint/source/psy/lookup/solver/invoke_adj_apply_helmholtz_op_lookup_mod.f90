@@ -10,14 +10,16 @@
 !!          for fields being used in calculations. The lookup table acts as
 !!          a stencil operation.
 
-MODULE invoke_adj_apply_helmholtz_op_lookup_kernel_mod
+! Module name shortened from invoke_adj_apply_helmholtz_op_lookup_kernel_mod because of ifort compiler used in JEDI
+MODULE invoke_adj_a_h_o_lookup_kernel_mod
   USE constants_mod, ONLY: r_solver, r_def, l_def, i_def
   USE field_mod, ONLY: field_type, field_proxy_type
   USE r_solver_field_mod, ONLY: r_solver_field_type, r_solver_field_proxy_type
   USE integer_field_mod, ONLY: integer_field_type, integer_field_proxy_type
   IMPLICIT NONE
   CONTAINS
-  SUBROUTINE invoke_adj_apply_helmholtz_op_lookup_kernel(vector_mx, vector_amx, helmholtz_operator, lookup_field, &
+  ! Subroutine name shortened from invoke_adj_apply_helmholtz_op_lookup_kernel because of ifort compiler used in JEDI
+  SUBROUTINE invoke_adj_a_h_o_lookup_kernel(vector_mx, vector_amx, helmholtz_operator, lookup_field, &
 &set_counts_field, stencil_extent, nindices, lam_mesh)
     USE adj_apply_helmholtz_op_lookup_kernel_mod, ONLY: adj_apply_helmholtz_op_lookup_code
     USE mesh_mod, ONLY: mesh_type
@@ -139,5 +141,5 @@ MODULE invoke_adj_apply_helmholtz_op_lookup_kernel_mod
     CALL vector_mx_proxy%set_dirty()
     !
     !
-  END SUBROUTINE invoke_adj_apply_helmholtz_op_lookup_kernel
-END MODULE invoke_adj_apply_helmholtz_op_lookup_kernel_mod
+  END SUBROUTINE invoke_adj_a_h_o_lookup_kernel
+END MODULE invoke_adj_a_h_o_lookup_kernel_mod

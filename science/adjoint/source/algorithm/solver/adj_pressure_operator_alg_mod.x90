@@ -18,7 +18,7 @@ module adj_pressure_operator_alg_mod
   use boundaries_config_mod,                           only: limited_area
   use base_mesh_config_mod,                            only: topology, topology_non_periodic
 
-  use invoke_adj_apply_helmholtz_op_lookup_kernel_mod, only: invoke_adj_apply_helmholtz_op_lookup_kernel
+  use invoke_adj_a_h_o_lookup_kernel_mod,              only: invoke_adj_a_h_o_lookup_kernel
   use adj_lookup_table_generators_alg_mod,             only: create_lookup_apply_helmholtz_op
   use adj_lookup_table_mod,                            only: adj_lookup_table_type
   use integer_field_mod,                               only: integer_field_type
@@ -143,14 +143,14 @@ contains
           set_counts_field => lookup % get_set_count_field()
           nindices = lookup % get_nindices()
 
-          call invoke_adj_apply_helmholtz_op_lookup_kernel( x_vec,              &
-                                                            y_vec,              &
-                                                            Helmholtz_operator, &
-                                                            lookup_field,       &
-                                                            set_counts_field,   &
-                                                            stencil_extent,     &
-                                                            nindices,           &
-                                                            lam_mesh )
+          call invoke_adj_a_h_o_lookup_kernel( x_vec,              &
+                                               y_vec,              &
+                                               Helmholtz_operator, &
+                                               lookup_field,       &
+                                               set_counts_field,   &
+                                               stencil_extent,     &
+                                               nindices,           &
+                                               lam_mesh )
         else
           call log_event( "apply_adj_pressure_operator: element_orders /= 0 not coded", LOG_LEVEL_ERROR )
         end if

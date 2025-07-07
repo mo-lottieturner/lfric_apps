@@ -688,7 +688,8 @@ lookup_field_dummy, set_counts_field_dummy, nsets_max, nindices, stencil_extent,
     !
   END SUBROUTINE invoke_gen_w3h_adv_upd_lookup_kernel
 
-  SUBROUTINE invoke_gen_apply_helmholtz_op_lookup_kernel(dummy_w3_big_halo, lookup_field, set_counts_field, lookup_field_dummy, &
+  ! Subroutine name shortened from invoke_gen_apply_helmholtz_op_lookup_kernel because of ifort compiler used in JEDI
+  SUBROUTINE invoke_gen_a_h_o_lookup_kernel(dummy_w3_big_halo, lookup_field, set_counts_field, lookup_field_dummy, &
 &set_counts_field_dummy, nindices, stencil_extent, loop_halo_depth)
     USE gen_apply_helmholtz_op_lookup_kernel_mod, ONLY: gen_apply_helmholtz_op_lookup_code
     USE mesh_mod, ONLY: mesh_type
@@ -826,6 +827,6 @@ lookup_field_dummy, set_counts_field_dummy, nsets_max, nindices, stencil_extent,
     CALL set_counts_field_proxy%set_clean(loop_halo_depth)
     !
     !
-  END SUBROUTINE invoke_gen_apply_helmholtz_op_lookup_kernel
+  END SUBROUTINE invoke_gen_a_h_o_lookup_kernel
 
 end module psykal_lite_gen_lookup_tables_psy_mod

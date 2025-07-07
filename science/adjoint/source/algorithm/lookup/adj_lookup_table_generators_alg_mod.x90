@@ -329,7 +329,7 @@ contains
   !> @param[in]     dummy_w3             Field input for kernel.
   subroutine create_lookup_apply_helmholtz_op(lookup, dummy_w3)
 
-    use psykal_lite_gen_lookup_tables_psy_mod, only : invoke_gen_apply_helmholtz_op_lookup_kernel
+    use psykal_lite_gen_lookup_tables_psy_mod, only : invoke_gen_a_h_o_lookup_kernel
 
     implicit none
 
@@ -374,14 +374,14 @@ contains
     call dummy_w3_big_halo%initialise( dummy_w3 % get_function_space(), &
                                        halo_depth=loop_halo_depth + stencil_extent )
 
-    call invoke_gen_apply_helmholtz_op_lookup_kernel( dummy_w3_big_halo, &
-                                                      lookup_field, &
-                                                      set_counts_field, &
-                                                      lookup_field_dummy, &
-                                                      set_counts_field_dummy, &
-                                                      nindices, &
-                                                      stencil_extent, &
-                                                      loop_halo_depth )
+    call invoke_gen_a_h_o_lookup_kernel( dummy_w3_big_halo, &
+                                         lookup_field, &
+                                         set_counts_field, &
+                                         lookup_field_dummy, &
+                                         set_counts_field_dummy, &
+                                         nindices, &
+                                         stencil_extent, &
+                                         loop_halo_depth )
 
   end subroutine create_lookup_apply_helmholtz_op
 
