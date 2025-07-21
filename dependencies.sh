@@ -29,5 +29,5 @@ export jules_rev=apps2.2
 export jules_sources=
 export socrates_rev=apps2.2
 export socrates_sources=
-export ukca_rev=apps2.2
+export ukca_rev=6670
 export ukca_sources=
