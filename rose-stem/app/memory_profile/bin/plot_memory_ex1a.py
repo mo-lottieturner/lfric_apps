@@ -99,8 +99,8 @@ def plot_run_job(run, out_filename):
             raise ValueError('Failed to parse memory per node from job.out. '
                              'Check that the PBS script has run and output '
                              'and that both MEMORY_PROFILE is true & '
-                             'TARGET_PLATFORM = "meto-ex1a" in the environment '
-                             'variables passed to launch-exe.')
+                             'TARGET_PLATFORM = "meto-ex1a" in the '
+                             'environment variables passed to launch-exe.')
 
     run_env_vars = {}
     # parse environment variables from job.out
@@ -134,7 +134,7 @@ def plot_run_job(run, out_filename):
         astart, = start_pattern.findall(jofr)
         success_pattern = re.compile(r'([0-9\-:T]+)Z INFO - succeeded')
         asuccess, = success_pattern.findall(jofr)
-        wt = datetime.datetime.fromisoformat(asuccess) - datetime.datetime.fromisoformat(astart)
+        wt = datetime.datetime.fromisoformat(asuccess)-datetime.datetime.fromisoformat(astart)
         wclock = str(wt)
 
     if mpiprocs is not None:
@@ -214,8 +214,8 @@ def plot_run_job(run, out_filename):
         col = "black"
         xval = nodes.index(m['node'])
         y = m['memkB']*KB_TO_MIB
-        if (m['exec'] == 'lfric' or m['exec'] == 'lfric_atm' or
-            m['exec'] == 'lfric2um' or m['exec'] == 'um2lfric'):
+        if m['exec'] == 'lfric' or m['exec'] == 'lfric_atm' or \
+           m['exec'] == 'lfric2um' or m['exec'] == 'um2lfric':
             label = m['exec']
             col = 'green'
             if lfirst:
