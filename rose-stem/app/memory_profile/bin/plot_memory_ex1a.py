@@ -134,7 +134,8 @@ def plot_run_job(run, out_filename):
         astart, = start_pattern.findall(jofr)
         success_pattern = re.compile(r'([0-9\-:T]+)Z INFO - succeeded')
         asuccess, = success_pattern.findall(jofr)
-        wt = datetime.datetime.fromisoformat(asuccess)-datetime.datetime.fromisoformat(astart)
+        wt = datetime.datetime.fromisoformat(asuccess) \
+            - datetime.datetime.fromisoformat(astart)
         wclock = str(wt)
 
     if mpiprocs is not None:
@@ -158,7 +159,8 @@ def plot_run_job(run, out_filename):
     run_stats['run'][f"{run_env_vars.get('EXEC_NAME', '')} ranks"] = tranks
     run_stats['run']['OMP_threads'] = run_env_vars.get('OMP_NUM_THREADS', '')
     if run_env_vars.get('XIOS_SERVER_MODE') == 'True':
-        run_stats['run']['xios_server ranks'] = int(run_env_vars.get('XIOS_SERVER_RANKS', ''))
+        run_stats['run']['xios_server ranks'] = \
+            int(run_env_vars.get('XIOS_SERVER_RANKS', ''))
     # Run configuration information is now encoded into the title to be used
     # for plotting.
     # Next, parse run configuration information from the job.err PBS file;
@@ -258,10 +260,12 @@ def plot_run_job(run, out_filename):
               f'≤ {int(max(all_lf))}')
 
     run_stats[run_env_vars.get('EXEC_NAME', '')] = {}
-    run_stats[run_env_vars.get('EXEC_NAME', '')]['mean'] = statistics.mean(all_lf)
+    run_stats[run_env_vars.get('EXEC_NAME', '')]['mean'] = \
+        statistics.mean(all_lf)
     run_stats[run_env_vars.get('EXEC_NAME', '')]['max'] = max(all_lf)
     run_stats[run_env_vars.get('EXEC_NAME', '')]['min'] = min(all_lf)
-    run_stats[run_env_vars.get('EXEC_NAME', '')]['std_dev'] = statistics.stdev(all_lf)
+    run_stats[run_env_vars.get('EXEC_NAME', '')]['std_dev'] = \
+        statistics.stdev(all_lf)
     run_stats[run_env_vars.get('EXEC_NAME', '')]['units'] = 'max mem MiB'
     if all_x:
         tstats = tstats + (f'\n{int(min(all_x))} ≤ xios_server (max mem MiB): '
