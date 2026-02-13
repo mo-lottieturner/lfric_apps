@@ -11,8 +11,8 @@ use, intrinsic :: iso_fortran_env, only: real64, int64
 ! lfricinp modules
 use lfricinp_stashmaster_mod,          only: get_stashmaster_item, grid,   &
                                              p_points, u_points, v_points, &
-                                             ozone_points,                 &
-                                             ppfc,                         &
+                                             ozone_points, land_compressed, &
+                                             ppfc, p_points_values_over_sea, &
                                              sm_lbvc => lbvc,              &
                                              cfff,                         &
                                              levelt,                       &
@@ -140,7 +140,7 @@ grid_type_code = get_stashmaster_item(stashcode, grid)
 
 ! Set horiz grid
 select case(grid_type_code)
-case(p_points, ozone_points)
+case(p_points, ozone_points, land_compressed, p_points_values_over_sea)
   lookup_int(lbrow) = um_grid%num_p_points_y
   lookup_int(lbnpt) = um_grid%num_p_points_x
   ! "Zeroth" start lat/lon so subtract one grid spacing
@@ -227,14 +227,49 @@ lookup_real_tmp(brsvd4) = 0.0_real64
 
 ! Check vertical coordinate type
 if (lookup_int(lbvc) >= 126 .and. lookup_int(lbvc) <= 139 &
-     .or. lookup_int(lbvc) == 5) then
+     .or. lookup_int(lbvc) == 5 .or. lookup_int(lbvc) == 0 .or. &
+     lookup_int(lbvc) == 275 ) then
   ! Special codes inc single level, set to 0.0
+  if ( .not. lookup_int(lbvc) == 129 ) then
+    write(log_scratch_space, '(A,I0,A)') &
+       "Vertical coord type ", lookup_int(lbvc), " treated as single layer"
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+  end if
   lookup_real_tmp(blev)=0.0_real64
   lookup_real_tmp(bhlev)=0.0_real64
   lookup_real_tmp(brlev)=0.0_real64
   lookup_real_tmp(bhrlev)=0.0_real64
   lookup_real_tmp(bulev)=0.0_real64
   lookup_real_tmp(bhulev)=0.0_real64
+else if (lookup_int(lbvc) == 6) then ! Deep soil levels
+  ! These are hardcoded to the settings in a UM dump file with 4 soil levels as
+  ! that is currently hardcoded in elsewhere in lfric2um. If at some point that
+  ! gets changed to not be hardcoded, this will also need to change
+  ! bulev is the same as brsvd1
+  write(log_scratch_space, '(A,I0,A)') &
+    "Vertical coord type ", lookup_int(lbvc), " treated as soil field"
+  call log_event(log_scratch_space, LOG_LEVEL_INFO)
+  if (level_number == 1) then
+    lookup_real_tmp(bulev) = 0.0_real64
+    lookup_real_tmp(blev)=0.05_real64
+    lookup_real_tmp(brlev)=0.1_real64
+  else if (level_number == 2) then
+    lookup_real_tmp(bulev) = 0.1_real64
+    lookup_real_tmp(blev)=0.225_real64
+    lookup_real_tmp(brlev)=0.35_real64
+  else if (level_number == 3) then
+    lookup_real_tmp(bulev) = 0.35_real64
+    lookup_real_tmp(blev)=0.675_real64
+    lookup_real_tmp(brlev)=1.0_real64
+  else if (level_number == 4) then
+    lookup_real_tmp(bulev) = 1.0_real64
+    lookup_real_tmp(blev)=2.0_real64
+    lookup_real_tmp(brlev)=3.0_real64
+  else
+    write(log_scratch_space, '(A,I0,A)') "Soil level number ", level_number, &
+      " not supported. Only soil fields with 4 levels are supported currently"
+    call log_event(log_scratch_space, LOG_LEVEL_ERROR)
+  end if
 else if (lookup_int(lbvc) == 65) then ! Standard hybrid height levels
   ! height of model level k above mean sea level is
   !       z(i,j,k) = Zsea(k) + C(k)*Zorog(i,j)
@@ -243,6 +278,7 @@ else if (lookup_int(lbvc) == 65) then ! Standard hybrid height levels
   ! brlev,bhrlev      zsea,C of lower level boundary
   ! The level here can refer to either a theta or rho level, with
   ! layer boundaries defined by surrounding rho or theta levels.
+
   if (level_code == theta_levels) then ! theta level (& w)
 
     ! When referencing theta arrays need to add 1 to the level number as level
