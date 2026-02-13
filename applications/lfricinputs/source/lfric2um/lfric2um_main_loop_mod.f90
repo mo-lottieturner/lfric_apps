@@ -9,36 +9,37 @@ module lfric2um_main_loop_mod
 use, intrinsic :: iso_fortran_env, only: int64, real64
 
 ! lfric2um modules
-use lfric2um_namelists_mod,       only: lfric2um_config
-use lfricinp_lfric_driver_mod,    only: lfric_fields, local_rank, comm,   &
-                                        twod_mesh
-use lfric2um_initialise_um_mod,   only: um_output_file
-use lfricinp_um_grid_mod,         only: um_grid
-use lfric2um_regrid_weights_mod,  only: get_weights
-use lfric2um_exner_above_top_mod, only: lfric2um_exner_above_top
-use lfric2um_conv_exner_mod,      only: lfric2um_conv_p_exner,            &
-                                        lfric2um_conv_exner_p
+use lfric2um_conv_exner_mod,        only: lfric2um_conv_p_exner,            &
+                                          lfric2um_conv_exner_p
+use lfric2um_exner_above_top_mod,   only: lfric2um_exner_above_top
+use lfric2um_initialise_um_mod,     only: um_output_file
+use lfric2um_namelists_mod,         only: lfric2um_config
+use lfric2um_regrid_weights_mod,    only: get_weights
 
 ! lfricinp modules
-use lfricinp_stashmaster_mod,          only: get_stashmaster_item, levelt,     &
-                                             stashcode_exner, stashcode_p,     &
-                                             stashcode_q, stashcode_theta,     &
-                                             pseudt, rho_levels, theta_levels, &
-                                             single_level
 use lfricinp_add_um_field_to_file_mod, only: lfricinp_add_um_field_to_file
-use lfricinp_um_level_codes_mod,       only: lfricinp_get_num_levels,           &
-                                             lfricinp_get_num_pseudo_levels
 use lfricinp_check_shumlib_status_mod, only: shumlib
+use lfricinp_gather_lfric_field_mod,   only: lfricinp_gather_lfric_field
+use lfricinp_lfric_driver_mod,         only: lfric_fields, local_rank, comm,   &
+                                             twod_mesh
 use lfricinp_regrid_weights_type_mod,  only: lfricinp_regrid_weights_type
 use lfricinp_stash_to_lfric_map_mod,   only: w2h_field, w3_field, w3_field_2d, &
                                              w3_soil_field, wtheta_field,      &
                                              get_field_name,                   &
                                              get_lfric_field_kind
-use lfricinp_gather_lfric_field_mod,   only: lfricinp_gather_lfric_field
+use lfricinp_stashmaster_mod,          only: get_stashmaster_item, levelt,     &
+                                             pseudt, rho_levels, single_level, &
+                                             stashcode_exner, stashcode_p,     &
+                                             stashcode_q, stashcode_theta,     &
+                                             theta_levels
+use lfricinp_um_grid_mod,              only: um_grid
+use lfricinp_um_level_codes_mod,       only: lfricinp_get_num_levels,          &
+                                             lfricinp_get_num_pseudo_levels
 
 ! lfric modules
-use field_mod, only: field_type
-use log_mod, only: log_event, log_scratch_space, LOG_LEVEL_INFO, LOG_LEVEL_ERROR
+use field_mod,     only: field_type
+use log_mod,       only: log_event, log_scratch_space,   &
+                         LOG_LEVEL_INFO, LOG_LEVEL_ERROR
 
 implicit none
 
@@ -173,8 +174,10 @@ do i_stash = 1, lfric2um_config%num_fields
       call weights%regrid_src_1d_dst_2d(global_field_array(:), &
            um_output_file%fields(i_field)%rdata(:,:))
 
+      !---------------------------------------------------------------------------
       ! Copy the pointers for the top-level fields needed to compute the
       ! Exner pressure at the half level immediately above the model top
+      !---------------------------------------------------------------------------
       if (stashcode == stashcode_q .and. level == num_levels) then
         q_top_buffer(:,:) = um_output_file%fields(i_field)%rdata(:,:)
       else if (stashcode == stashcode_theta .and. level == num_levels) then
@@ -201,7 +204,9 @@ do i_stash = 1, lfric2um_config%num_fields
     end if
   end do ! end loop over levels
 
+  !---------------------------------------------------------------------------
   ! Add the additional upper level for the Exner pressure
+  !---------------------------------------------------------------------------
   if (stashcode == stashcode_exner .or. stashcode == stashcode_p) then
     level = num_levels + 1
     if (local_rank == 0) then
