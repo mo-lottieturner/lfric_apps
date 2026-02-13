@@ -9,26 +9,26 @@ module lfricinp_add_um_field_to_file_mod
 use, intrinsic :: iso_fortran_env, only: real64, int64
 
 ! lfricinp modules
-use lfricinp_stashmaster_mod,          only: get_stashmaster_item, grid,   &
-                                             p_points, u_points, v_points, &
-                                             ozone_points, land_compressed, &
-                                             ppfc, p_points_values_over_sea, &
-                                             sm_lbvc => lbvc,              &
-                                             cfff,                         &
-                                             levelt,                       &
-                                             rho_levels, theta_levels,     &
-                                             single_level,                 &
-                                             cfll,                         &
-                                             datat
-use lfricinp_um_parameters_mod,        only: um_imdi, um_rmdi,             &
-                                             rh_polelat, rh_polelong,      &
-                                             ldc_zsea_theta, ldc_zsea_rho, &
-                                             ldc_c_theta, ldc_c_rho,       &
-                                             rh_deltaEW, rh_deltaNS,       &
-                                             ih_model_levels
-use lfricinp_grid_type_mod,            only: lfricinp_grid_type
-use lfricinp_um_level_codes_mod,       only: lfricinp_get_first_level_num
 use lfricinp_check_shumlib_status_mod, only: shumlib
+use lfricinp_grid_type_mod,            only: lfricinp_grid_type
+use lfricinp_stashmaster_mod,          only: get_stashmaster_item, grid,     &
+                                             p_points, u_points, v_points,   &
+                                             ozone_points, land_compressed,  &
+                                             ppfc, p_points_values_over_sea, &
+                                             sm_lbvc => lbvc,                &
+                                             cfff,                           &
+                                             levelt,                         &
+                                             rho_levels, theta_levels,       &
+                                             single_level,                   &
+                                             cfll,                           &
+                                             datat
+use lfricinp_um_level_codes_mod,       only: lfricinp_get_first_level_num
+use lfricinp_um_parameters_mod,        only: um_imdi, um_rmdi,               &
+                                             rh_polelat, rh_polelong,        &
+                                             ldc_zsea_theta, ldc_zsea_rho,   &
+                                             ldc_c_theta, ldc_c_rho,         &
+                                             rh_deltaEW, rh_deltaNS,         &
+                                             ih_model_levels
 
 
 ! lfric modules
@@ -40,7 +40,7 @@ use f_shum_fieldsfile_mod, only: f_shum_fixed_length_header_len
 use f_shum_file_mod, only: shum_file_type
 use f_shum_field_mod, only: shum_field_type
 use f_shum_lookup_indices_mod, only: &
-                                    lbyr, lbmon, lbdat, lbhr, lbmin, lbday, lbsec, lbyrd, lbmond, lbdatd, &
+    lbyr, lbmon, lbdat, lbhr, lbmin, lbday, lbsec, lbyrd, lbmond, lbdatd, &
     lbhrd, lbmind, lbdayd, lbsecd, lbtim, lbft, lbcode, lbhem,    &
     lbrow, lbnpt, lbpack, lbrel, lbfc, lbcfc, lbproc, lbvc, lbrvc, &
     lbtyp, lblev, lbrsvd1, lbrsvd2,        &
@@ -50,7 +50,7 @@ use f_shum_lookup_indices_mod, only: &
     bmks
 
 use f_shum_fixed_length_header_indices_mod, only:                        &
-                                                                        vert_coord_type, horiz_grid_type, &
+ vert_coord_type, horiz_grid_type, &
  dataset_type, run_identifier, calendar, projection_number, model_version, &
  grid_staggering, sub_model, t1_year, t1_month, t1_day, t1_hour, t1_minute, &
  t1_second, t2_year, t2_month, t2_day, t2_hour, t2_minute, t2_second, &
