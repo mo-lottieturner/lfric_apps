@@ -120,22 +120,54 @@ contains
     end do
   end do
 
-  ! EXTRAPOLATION
-  select case (extrapolation_method)
-    case (linear_extrapolation)
-      ! Linearly extrapolate
-
-    case (no_extrapolation)
-      ! No extrapolation - copy data outside source layers from nearest source layer
-
-    case default
-      call log_event("No extrapolation method chosen", log_level_error)
-
-  end select
-
   do m = 0, multidata
     do kk=0, dest_top_df
+      ! EXTRAPOLATION METHOD - ! Linear extrapolation at top and bottom
+
+      ! IF ( desired_r(j) > r_at_data(j,data_levels) ) THEN
+      if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+          > source_heights(DATALEVELS)) then
+      ! If requested level is above top of model, do linear
+      ! extrapolation using data on top and second top levels.
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(DATALEVELS)
+    
+
+      data_out(j) = data_in(j,data_levels) + (desired_r(j)                     &
+                  - r_at_data(j,data_levels)) * (data_in(j,data_levels)        &
+                  - data_in(j,data_levels-1))/(r_at_data(j,data_levels)        &
+                  - r_at_data(j,data_levels-1))
+
+      ! ELSE IF (desired_r(j) == r_at_data(j,data_levels) ) THEN
+      else if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+               == source_heights(DATALEVELS)) then
+
+        ! data_out(j) = data_in(j,data_levels)
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(DATALEVELS)
+
+      ! IF ( desired_r(j) < r_at_data(j,1) ) THEN
+      else if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+               < source_heights(map_source(df) + m*(source_top_df+1) + level_below(1))) then
+
+        ! If requested level is below bottom of model, do linear
+        ! extrapolation using data on first and second levels.
+        
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(map_source(df) + m*(source_top_df+1) + 1)
+
+      data_out(j) = data_in(j,1) + (desired_r(j)                               &
+                  - r_at_data(j,1)) * (data_in(j,1)                            &
+                  - data_in(j,2))/(r_at_data(j,1) - r_at_data(j,2))
+
+      ! ELSE IF (desired_r(j) == r_at_data(j,1) ) THEN
+      else if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+               == source_heights(map_source(df) + m*(source_top_df+1) + level_below(1))) then
+
+        ! data_out(j) = data_in(j,1)
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(map_source(df) + m*(source_top_df+1) + 1)
+     
+      else
+
       ! Linearly interpolate 
+
       ! dk(kk) =  ( (dh(kk) - sh(lb(kk))) * sf(lb(kk)+1) - (dh(kk) - sh(lb(kk)+1)) * sf(lb(kk)) ) 
       !          / (sh(lb(kk)+1) - sh(lb(kk)))
       destination_field(map_dest(df) + m*(dest_top_df+1) + kk) =           &
@@ -147,6 +179,7 @@ contains
                      * source_field (map_source(df) + m*(source_top_df+1) + level_below(kk)) )     &
                   / ( source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)+1)     &
                      - source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)) )
+      end if
     end do
   end do
 

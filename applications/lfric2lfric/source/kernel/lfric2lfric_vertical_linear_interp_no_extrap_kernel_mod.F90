@@ -120,33 +120,48 @@ contains
     end do
   end do
 
-  ! EXTRAPOLATION
-  select case (extrapolation_method)
-    case (linear_extrapolation)
-      ! Linearly extrapolate
-
-    case (no_extrapolation)
-      ! No extrapolation - copy data outside source layers from nearest source layer
-
-    case default
-      call log_event("No extrapolation method chosen", log_level_error)
-
-  end select
-
   do m = 0, multidata
     do kk=0, dest_top_df
+      ! EXTRAPOLATION METHOD - ! No linear extrapolation at top or bottom
+
+
+      ! IF ( desired_r(j) >= r_at_data(j,data_levels) ) THEN
+      !  data_out(j) = data_in(j,data_levels)
+      ! END IF
+
+      if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+          >= source_heights(DATALEVELS)) then
+      ! Top: Set to top input data
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(DATALEVELS)
+
+
+
+      ! IF ( desired_r(j) <= r_at_data(j,1) ) THEN
+      !   data_out(j) = data_in(j,1)
+      ! END IF
+
+      else if (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)
+               <= source_heights(map_source(df) + m*(source_top_df+1) + level_below(1))) then
+
+        ! Bottom: Set to bottom input data
+
+        destination_field(map_dest(df) + m*(dest_top_df+1) + kk) = source_field(map_source(df) + m*(source_top_df+1) + 1)
+
+      else
+
       ! Linearly interpolate 
       ! dk(kk) =  ( (dh(kk) - sh(lb(kk))) * sf(lb(kk)+1) - (dh(kk) - sh(lb(kk)+1)) * sf(lb(kk)) ) 
       !          / (sh(lb(kk)+1) - sh(lb(kk)))
       destination_field(map_dest(df) + m*(dest_top_df+1) + kk) =           &
                   ( (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)    &
                      - source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)) )     &
-                    * source_field (map_source(df) + m*(source_top_df+1) + level_below(kk)+1)     &
+                    * source_field(map_source(df) + m*(source_top_df+1) + level_below(kk)+1)     &
                    - (dest_heights(map_dest(df) + m*(dest_top_df+1) + kk)     &
                       - source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)+1))     &
-                     * source_field (map_source(df) + m*(source_top_df+1) + level_below(kk)) )     &
+                     * source_field(map_source(df) + m*(source_top_df+1) + level_below(kk)) )     &
                   / ( source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)+1)     &
                      - source_heights(map_source(df) + m*(source_top_df+1) + level_below(kk)) )
+      end if
     end do
   end do
 
