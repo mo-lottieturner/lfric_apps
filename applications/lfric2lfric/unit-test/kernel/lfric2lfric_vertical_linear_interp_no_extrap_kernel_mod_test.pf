@@ -15,13 +15,13 @@ module lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod_test
 
   implicit none
 
-  public:: test_all
+  public:: test_all, test_all_with_extrap
 
-  contains
+contains
 
 @Test
   subroutine test_all()
-  
+
     use lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod, only: lfric2lfric_vertical_linear_interp_no_extrap_kernel_code
 
     implicit none
@@ -34,12 +34,12 @@ module lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod_test
     integer(kind=i_def)               :: undf_dest, undf_source
     integer(kind=i_def), allocatable  :: map_dest(:,:)
     integer(kind=i_def), allocatable  :: map_source(:,:)
-    real(kind=r_single), allocatable  :: destination_field(:)
-    real(kind=r_single), allocatable  :: source_field(:)
-    real(kind=r_single), allocatable  :: expected_field(:)
-    real(kind=r_single), allocatable  :: dest_heights(:)
-    real(kind=r_single), allocatable  :: source_heights(:)
-    real(r_def), parameter            :: tol = 1.0e-12_r_def
+    real(kind=r_single), allocatable  :: destination_field(:,:,:)
+    real(kind=r_single), allocatable  :: source_field(:,:,:)
+    real(kind=r_single), allocatable  :: expected_field(:,:,:)
+    real(kind=r_single), allocatable  :: dest_heights(:,:,:)
+    real(kind=r_single), allocatable  :: source_heights(:,:,:)
+    real(kind=r_single), parameter    :: tol = 1.0e-12_r_single
 
     nlayers  = 3_i_def
     source_layers = 4_i_def
@@ -59,56 +59,56 @@ module lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod_test
     call get_w3_m3x3_dofmap(map_dest, 5_i_def)
 
     ! allocate
-    allocate(destination_field(undf_dest))
-    allocate(expected_field(undf_dest))
-    allocate(source_field(undf_source))
-    allocate(dest_heights(undf_dest))
-    allocate(source_heights(undf_source))
-    
-    source_field = (/&
-    (1.1_r_def, 2.3_r_def, 3.2_r_def, 4.1_r_def),
-    (1.1_r_def, 2.2_r_def, 3.1_r_def, 4.4_r_def),
-    (0.7_r_def, 2.3_r_def, 2.9_r_def, 4.0_r_def),
-    (0.5_r_def, 1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def, 4.5_r_def),
-    (1.4_r_def, 2.0_r_def, 3.4_r_def, 4.2_r_def),
-    (1.0_r_def, 2.4_r_def, 3.3_r_def, 4.4_r_def),
-    (1.1_r_def, 2.1_r_def, 3.3_r_def, 4.1_r_def)
-    /)
-    expected_field = (/&
-    (1.7_r_def,  2.75_r_def, 3.65_r_def),
-    (1.65_r_def, 2.65_r_def, 3.75_r_def),
-    (1.5_r_def,  2.6_r_def,  3.45_r_def),
-    (1.0_r_def,  2.0_r_def,  3.0_r_def),
-    (1.5_r_def,  2.5_r_def,  3.5_r_def),
-    (2.0_r_def,  3.0_r_def,  4.0_r_def),
-    (1.7_r_def,  2.7_r_def,  3.8_r_def),
-    (1.7_r_def,  2.85_r_def, 3.85_r_def),
-    (1.6_r_def,  2.7_r_def,  3.7_r_def)
-    /)
-    source_heights = (/&
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def)
-    /)
-    dest_heights = (/&
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def)
-    /)
+    ! allocate(destination_field(undf_dest))
+    ! allocate(expected_field(undf_dest))
+    ! allocate(source_field(undf_source))
+    ! allocate(dest_heights(undf_dest))
+    ! allocate(source_heights(undf_source))
+
+    source_field = reshape ((/&
+    1.1_r_single, 2.3_r_single, 3.2_r_single, 4.1_r_single,           &
+    1.1_r_single, 2.2_r_single, 3.1_r_single, 4.4_r_single,           &
+    0.7_r_single, 2.3_r_single, 2.9_r_single, 4.0_r_single,           &
+    0.5_r_single, 1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single, 4.5_r_single,           &
+    1.4_r_single, 2.0_r_single, 3.4_r_single, 4.2_r_single,           &
+    1.0_r_single, 2.4_r_single, 3.3_r_single, 4.4_r_single,           &
+    1.1_r_single, 2.1_r_single, 3.3_r_single, 4.1_r_single            &
+    /), (/ 4, 3, 3 /))
+    expected_field = reshape ((/&
+    1.7_r_single,  2.75_r_single, 3.65_r_single,           &
+    1.65_r_single, 2.65_r_single, 3.75_r_single,           &
+    1.5_r_single,  2.6_r_single,  3.45_r_single,           &
+    1.0_r_single,  2.0_r_single,  3.0_r_single,            &
+    1.5_r_single,  2.5_r_single,  3.5_r_single,            &
+    2.0_r_single,  3.0_r_single,  4.0_r_single,            &
+    1.7_r_single,  2.7_r_single,  3.8_r_single,            &
+    1.7_r_single,  2.85_r_single, 3.85_r_single,           &
+    1.6_r_single,  2.7_r_single,  3.7_r_single             &
+    /), (/ 3, 3, 3 /))
+    source_heights = reshape ((/&
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single            &
+    /), (/ 4, 3, 3 /))
+    dest_heights = reshape ((/&
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single            &
+    /), (/ 3, 3, 3 /))
 
     call lfric2lfric_vertical_linear_interp_no_extrap_code_r_single(         &
                                       nlayers,                            &
@@ -131,8 +131,8 @@ module lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod_test
 
 @Test
   subroutine test_all_with_extrap()
-  
-    use lfric2lfric_vertical_linear_interp_linear_extrap_kernel_mod, only: lfric2lfric_vertical_linear_interp_linear_extrap_kernel_code
+
+    use lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod, only: lfric2lfric_vertical_linear_interp_no_extrap_kernel_code
 
     implicit none
 
@@ -144,95 +144,92 @@ module lfric2lfric_vertical_linear_interp_no_extrap_kernel_mod_test
     integer(kind=i_def)               :: undf_dest, undf_source
     integer(kind=i_def), allocatable  :: map_dest(:,:)
     integer(kind=i_def), allocatable  :: map_source(:,:)
-    real(kind=r_single), allocatable  :: destination_field(:)
-    real(kind=r_single), allocatable  :: source_field(:)
-    real(kind=r_single), allocatable  :: expected_field(:)
-    real(kind=r_single), allocatable  :: dest_heights(:)
-    real(kind=r_single), allocatable  :: source_heights(:)
-    real(r_def), parameter            :: tol = 1.0e-12_r_def
+    real(kind=r_single), allocatable  :: destination_field(:,:,:)
+    real(kind=r_single), allocatable  :: source_field(:,:,:)
+    real(kind=r_single), allocatable  :: expected_field(:,:,:)
+    real(kind=r_single), allocatable  :: dest_heights(:,:,:)
+    real(kind=r_single), allocatable  :: source_heights(:,:,:)
+    real(kind=r_single), parameter    :: tol = 1.0e-12_r_single
 
     nlayers  = 5_i_def
     source_layers = 4_i_def
-    call get_w3_m3x3_q3x3x3_size( ndf_source, undf_source,           &
-                                  ncell,                    &
-                                  dim_space, dim_space_diff, &
-                                  nqp_h, nqp_v,              &
-                                  source_layers )
+    call get_w3_m3x3_q3x3x3_size( ndf_source, undf_source, ncell, &
+                                  dim_space, dim_space_diff,      &
+                                  nqp_h, nqp_v, source_layers     )
 
     call get_w3_m3x3_dofmap(map_source, 4_i_def)
 
-    call get_w3_m3x3_q3x3x3_size( ndf_dest, undf_dest,           &
-                                  ncell,                    &
+    call get_w3_m3x3_q3x3x3_size( ndf_dest, undf_dest, ncell, &
                                   dim_space, dim_space_diff, &
                                   nqp_h, nqp_v,              &
                                   nlayers )
     call get_w3_m3x3_dofmap(map_dest, 5_i_def)
 
     ! allocate
-    allocate(destination_field(undf_dest))
-    allocate(expected_field(undf_dest))
-    allocate(source_field(undf_source))
-    allocate(dest_heights(undf_dest))
-    allocate(source_heights(undf_source))
-    
-    source_field = (/&
-    (1.1_r_def, 2.3_r_def, 3.2_r_def, 4.1_r_def),
-    (1.1_r_def, 2.2_r_def, 3.1_r_def, 4.4_r_def),
-    (0.7_r_def, 2.3_r_def, 2.9_r_def, 4.0_r_def),
-    (0.5_r_def, 1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def, 4.5_r_def),
-    (1.4_r_def, 2.0_r_def, 3.4_r_def, 4.2_r_def),
-    (1.0_r_def, 2.4_r_def, 3.3_r_def, 4.4_r_def),
-    (1.1_r_def, 2.1_r_def, 3.3_r_def, 4.1_r_def)
-    /)
-    expected_field = (/&
-    (1.1_r_def, 1.7_r_def,  2.75_r_def, 3.65_r_def, 4.1_r_def),
-    (1.1_r_def, 1.65_r_def, 2.65_r_def, 3.75_r_def, 4.4_r_def),
-    (0.7_r_def, 1.5_r_def,  2.6_r_def,  3.45_r_def, 4.0_r_def),
-    (0.5_r_def, 1.0_r_def,  2.0_r_def,  3.0_r_def,  3.5_r_def),
-    (1.0_r_def, 1.5_r_def,  2.5_r_def,  3.5_r_def,  4.0_r_def),
-    (1.5_r_def, 2.0_r_def,  3.0_r_def,  4.0_r_def,  4.5_r_def),
-    (1.4_r_def, 1.7_r_def,  2.7_r_def,  3.8_r_def,  4.2_r_def),
-    (1.0_r_def, 1.7_r_def,  2.85_r_def, 3.85_r_def, 4.4_r_def),
-    (1.1_r_def, 1.6_r_def,  2.7_r_def,  3.7_r_def,  4.1_r_def)
-    /)
-    source_heights = (/&
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def),
-    (1.0_r_def, 2.0_r_def, 3.0_r_def, 4.0_r_def)
-    /)
-    dest_heights = (/&
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def),
-    (1.5_r_def, 2.5_r_def, 3.5_r_def)
-    /)
+    ! allocate(destination_field(undf_dest))
+    ! allocate(expected_field(undf_dest))
+    ! allocate(source_field(undf_source))
+    ! allocate(dest_heights(undf_dest))
+    ! allocate(source_heights(undf_source))
 
-    call lfric2lfric_vertical_linear_interp_linear_extrap_code_r_single(         &
-                                      nlayers,                            &
-                                      destination_field,                  &
-                                      source_field,                       &
-                                      source_layers,                      &
-                                      ncell,                              &
-                                      dest_heights,                       &
-                                      source_heights,                     &
-                                      ndf_dest,                           &
-                                      undf_dest,                          &
-                                      map_dest,                           &
-                                      ndf_source,                         &
-                                      undf_source,                        &
+    source_field = reshape ((/&
+    1.1_r_single, 2.3_r_single, 3.2_r_single, 4.1_r_single,           &
+    1.1_r_single, 2.2_r_single, 3.1_r_single, 4.4_r_single,           &
+    0.7_r_single, 2.3_r_single, 2.9_r_single, 4.0_r_single,           &
+    0.5_r_single, 1.5_r_single, 2.5_r_single, 3.5_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.5_r_single, 2.5_r_single, 3.5_r_single, 4.5_r_single,           &
+    1.4_r_single, 2.0_r_single, 3.4_r_single, 4.2_r_single,           &
+    1.0_r_single, 2.4_r_single, 3.3_r_single, 4.4_r_single,           &
+    1.1_r_single, 2.1_r_single, 3.3_r_single, 4.1_r_single            &
+    /), (/ 4, 3, 3 /))
+    expected_field = reshape ((/&
+    1.1_r_single, 1.7_r_single,  2.75_r_single, 3.65_r_single, 4.1_r_single,   &
+    1.1_r_single, 1.65_r_single, 2.65_r_single, 3.75_r_single, 4.4_r_single,   &
+    0.7_r_single, 1.5_r_single,  2.6_r_single,  3.45_r_single, 4.0_r_single,   &
+    0.5_r_single, 1.0_r_single,  2.0_r_single,  3.0_r_single,  3.5_r_single,   &
+    1.0_r_single, 1.5_r_single,  2.5_r_single,  3.5_r_single,  4.0_r_single,   &
+    1.5_r_single, 2.0_r_single,  3.0_r_single,  4.0_r_single,  4.5_r_single,   &
+    1.4_r_single, 1.7_r_single,  2.7_r_single,  3.8_r_single,  4.2_r_single,   &
+    1.0_r_single, 1.7_r_single,  2.85_r_single, 3.85_r_single, 4.4_r_single,   &
+    1.1_r_single, 1.6_r_single,  2.7_r_single,  3.7_r_single,  4.1_r_single    &
+    /), (/ 5, 3, 3 /))
+    source_heights = reshape ((/&
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single,           &
+    1.0_r_single, 2.0_r_single, 3.0_r_single, 4.0_r_single            &
+    /), (/ 4, 3, 3 /))
+    dest_heights = reshape ((/&
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single,   &
+    0.5_r_single,  1.5_r_single, 2.5_r_single, 3.5_r_single,  4.5_r_single    &
+    /), (/ 5, 3, 3 /))
+
+    call lfric2lfric_vertical_linear_interp_no_extrap_code_r_single(  &
+                                      nlayers,                        &
+                                      destination_field,              &
+                                      source_field,                   &
+                                      source_layers,                  &
+                                      ncell,                          &
+                                      dest_heights,                   &
+                                      source_heights,                 &
+                                      ndf_dest,                       &
+                                      undf_dest,                      &
+                                      map_dest,                       &
+                                      ndf_source,                     &
+                                      undf_source,                    &
                                       map_source)
 
     @assertEqual(expected_field, destination_field, tol)
