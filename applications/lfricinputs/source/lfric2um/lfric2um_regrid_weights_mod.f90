@@ -66,7 +66,7 @@ function get_weights(stashcode) result (weights)
 ! Intrinsic modules
 use, intrinsic :: iso_fortran_env, only : int64
 ! lfricinputs modules
-use lfricinp_stashmaster_mod, only: get_stashmaster_item, grid, &
+use lfricinp_stashmaster_mod, only: get_stashmaster_item, grid,              &
                                     land_compressed, ozone_points, p_points, &
                                     p_points_values_over_sea, u_points, v_points
 use lfricinp_regrid_options_mod, only: interp_method
