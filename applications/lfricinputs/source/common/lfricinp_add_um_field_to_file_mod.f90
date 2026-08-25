@@ -17,7 +17,7 @@ use lfricinp_stashmaster_mod,          only: get_stashmaster_item, grid,     &
                                              ppfc, p_points_values_over_sea, &
                                              sm_lbvc => lbvc,                &
                                              cfff,                           &
-                                             levelt,                         &
+                                             levelt, pseudt,                 &
                                              rho_levels, theta_levels,       &
                                              single_level,                   &
                                              cfll,                           &
@@ -231,7 +231,12 @@ if (lookup_int(lbvc) >= 126 .and. lookup_int(lbvc) <= 139 &
      "Vertical coord type ", lookup_int(lbvc), " treated as single layer"
   call log_event(log_scratch_space, LOG_LEVEL_INFO)
   ! Pseudo-level number
-  ! lookup_int(lbuser5) = 5_int64
+  if ( get_stashmaster_item(stashcode, pseudt) /= 0 ) then
+    lookup_int(lbuser5) = level_number
+    write(log_scratch_space, '(A,I0)')                                     &
+       "Pseudo-level number set as  ", level_number
+    call log_event(log_scratch_space, LOG_LEVEL_INFO)
+  end if
 
   ! Special codes inc single level, set to 0.0
   lookup_real_tmp(blev)=0.0_real64
