@@ -64,9 +64,9 @@
 
       <!-- File definition for lfric checkpoint read -->
       <file id="lfric_checkpoint_read" name="lfric_checkpoint_read" mode="read" output_freq="1ts" convention="UGRID" cyclic="true" enabled=".FALSE.">
-	<field id="read_ew_wind" name="ew_wind" long_name="eastward_wind" standard_name="eastward_wind" unit="m s-1" grid_ref="half_level_face_grid" operation="instant" />
-	<field id="read_ns_wind" name="ns_wind" long_name="northward_wind" standard_name="northward_wind" unit="m s-1" grid_ref="half_level_face_grid" operation="instant" />
-	<field id="read_upward_wind" name="upward_wind" long_name="upward_air_velocity" standard_name="upward_air_velocity" unit="m s-1" grid_ref="full_level_face_grid" operation="instant" />
+  <field id="read_u_in_w3" name="u_in_w3" long_name="eastward_wind_at_cell_centres" standard_name="eastward_wind" unit="ms-1" grid_ref="half_level_face_grid" operation="instant" />
+  <field id="read_v_in_w3" name="v_in_w3" long_name="northward_wind_at_cell_centres" standard_name="northward_wind" unit="ms-1" grid_ref="half_level_face_grid" operation="instant" />
+  <field id="read_w_in_wth" name="w_in_wth" long_name="upward_air_velocity_at_cell_interfaces" standard_name="upward_air_velocity" unit="m s-1" grid_ref="full_level_face_grid" operation="instant" />
 	<field id="read_theta" name="theta" long_name="air_potential_temperature" standard_name="air_potential_temperature" unit="K" grid_ref="full_level_face_grid" operation="instant" />
 	<field id="read_rho" name="rho" long_name="air_density" unit="1" grid_ref="half_level_face_grid" operation="instant" />
 	<field id="read_m_v" name="m_v" long_name="humidity_mixing_ratio"  unit="1" grid_ref="full_level_face_grid" operation="instant" />
@@ -80,7 +80,7 @@
 	<field id="read_frozen_fraction" name="frozen_fraction" long_name="cloud_frozen_fraction" unit="1" grid_ref="full_level_face_grid" operation="instant" />
 	<field id="read_z0msea" name="z0msea" long_name="sea_surface_roughness_length" unit="m" domain_ref="face" operation="instant" />
 
-<!-- field for snow_layers_and_tiles functionality 
+<!-- field for snow_layers_and_tiles functionality
   <field id="tile_snow_layer_liq_mass" name="tile_snow_layer_liq_mass" long_name="Snow layer liquid mass on tiles" unit="kg m-2" grid_ref="snow_layers_face_grid" operation="instant" />
 -->
 
@@ -108,7 +108,7 @@
 	<field id="read_tile_temperature" name="tile_temperature" long_name="Tile temperature" unit="K" grid_ref="land_tiles_face_grid" operation="instant" />
 	<field id="read_tstar_sea_ice" name="tstar_sea_ice" long_name="Sea ice surface temperature" unit="K" domain_ref="face" operation="instant" />
 	<field id="read_sea_ice_temperature" name="sea_ice_temperature" long_name="Sea-ice bulk temperature" unit="K" domain_ref="face" operation="instant" />
-  
+
       </file>
 
     </file_definition>

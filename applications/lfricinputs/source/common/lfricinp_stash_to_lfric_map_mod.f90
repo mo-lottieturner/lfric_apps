@@ -124,13 +124,13 @@ else
 ENDIF
 call map_field_name(stashcode_theta, 'theta')                        ! stash 4
 call map_field_name(stashcode_soil_moist, 'soil_moisture')           ! stash 9
-call map_field_name(stashcode_q, 'qv')                               ! stash 10
+call map_field_name(stashcode_q, 'q')                                ! stash 10
 call map_field_name(stashcode_qcf, 'qcf')                            ! stash 12
 call map_field_name(stashcode_soil_temp, 'soil_temperature')         ! stash 20
 call map_field_name(stashcode_mean_canopyw, 'canopy_water_content')  ! stash 22
 call map_field_name(stashcode_tstar, 'tstar')                        ! stash 24
 call map_field_name(stashcode_bl_depth, 'zh')                        ! stash 25
-call map_field_name(stashcode_z0, 'z0m')                             ! stash 26
+call map_field_name(stashcode_z0, 'z0msea')                          ! stash 26
 call map_field_name(stashcode_lsm, 'land_mask')                      ! stash 30
 call map_field_name(stashcode_icefrac, 'icefrac')                    ! stash 31
 call map_field_name(stashcode_icethick, 'icethick')                  ! stash 32
