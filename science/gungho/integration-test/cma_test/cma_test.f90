@@ -29,8 +29,8 @@ program cma_test
                                              test_cma_apply_inv,             &
                                              test_cma_diag_DhMDhT
   use config_mod,                     only : config_type
-  use constants_mod,                  only : i_def, r_def, i_def, l_def, imdi, &
-                                             r_solver, pi, str_def,            &
+  use constants_mod,                  only : i_def, r_def, i_def, l_def,  &
+                                             r_solver, pi, str_def,       &
                                              str_max_filename
   use derived_config_mod,             only : set_derived_config
   use extrusion_mod,                  only : extrusion_type, &
@@ -55,15 +55,18 @@ program cma_test
                                              finalise_logging,   &
                                              LOG_LEVEL_ERROR,    &
                                              LOG_LEVEL_INFO
-  use mesh_mod,                       only : mesh_type
+  use mesh_mod,                       only : mesh_type, geometry_spherical
   use mesh_collection_mod,            only : mesh_collection
-  use base_mesh_config_mod,           only : GEOMETRY_SPHERICAL
   use create_mesh_mod,                only : create_mesh
   use add_mesh_map_mod,               only : assign_mesh_maps
   use sci_chi_transform_mod,          only : init_chi_transforms, &
                                              final_chi_transforms
 
   implicit none
+
+  real(r_def), parameter :: geostrophic_north_pole(2) = [0.0_r_def, PI/2.0_r_def]
+  real(r_def), parameter :: null_island(2) = [0.0_r_def, 0.0_r_def]
+  real(r_def), parameter :: equator_latitude = 0.0_r_def
 
   ! MPI communicator
   type(lfric_comm_type) :: comm
@@ -130,11 +133,16 @@ program cma_test
   character(str_def) :: prime_mesh_name
   real(r_def)        :: radius
   real(r_def)        :: scaled_radius
-  integer            :: geometry
-  integer            :: extrusion_method
+  integer(i_def)     :: geometry
+  integer(i_def)     :: extrusion_method
+  integer(i_def)     :: tile_size_x
+  integer(i_def)     :: tile_size_y
   integer(i_def)     :: number_of_layers
   logical(l_def)     :: prepartitioned
-  logical            :: check_partitions = .false.
+  logical(l_def)     :: check_partitions = .false.
+  logical(l_def)     :: inner_halo_tiles
+
+  integer(i_def), allocatable :: tile_size(:,:)
 
   ! Error tolerance for tests
   ! Note: tolerance is for r_solver = real64
@@ -267,6 +275,16 @@ program cma_test
   prime_mesh_name  = config%base_mesh%prime_mesh_name()
   scaled_radius    = config%planet%scaled_radius()
 
+  if (prepartitioned) then
+    inner_halo_tiles = .false.
+    tile_size_x      = 1
+    tile_size_y      = 1
+  else
+    inner_halo_tiles = config%partitioning%inner_halo_tiles()
+    tile_size_x      = config%partitioning%tile_size_x()
+    tile_size_y      = config%partitioning%tile_size_y()
+  end if
+
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   ! Initialise
 
@@ -283,9 +301,15 @@ program cma_test
   stencil_depth = 2
   check_partitions = .false.
 
-  call init_mesh( config,                     &
-                  local_rank, total_ranks,    &
-                  base_mesh_names, extrusion, &
+  if (allocated(tile_size)) deallocate(tile_size)
+  allocate(tile_size(2, size(base_mesh_names)))
+  tile_size(1,:) = tile_size_x
+  tile_size(2,:) = tile_size_y
+
+  call init_mesh( config,                      &
+                  local_rank, total_ranks,     &
+                  base_mesh_names, extrusion,  &
+                  inner_halo_tiles, tile_size, &
                   stencil_depth, check_partitions )
 
   allocate( twod_names, source=base_mesh_names )
@@ -296,21 +320,28 @@ program cma_test
                                          0.0_r_def, &
                                          1_i_def, TWOD )
   call create_mesh( base_mesh_names, extrusion_2d, &
+                    inner_halo_tiles, tile_size,   &
                     alt_name=twod_names )
   call assign_mesh_maps(twod_names)
-
-  call init_chi_transforms(geometry_spherical, imdi, &
-                           mesh_collection=mesh_collection)
 
   ! Work out grid spacing, which should be of order 1
   mesh => mesh_collection%get_mesh(prime_mesh_name)
   ncells_2d_local = mesh%get_ncells_2d()
 
   ! Ensure that a spherical geometry is used (otherwise tests are too simple)
-  if (geometry /= GEOMETRY_SPHERICAL) then
+  if (geometry /= geometry_spherical) then
      call log_event( "Geometry has to be spherical", &
                      LOG_LEVEL_ERROR )
   end if
+
+  ! Note: Calling 'init_chi_transforms' is only valid for meshes which have a
+  !       spherical geometry and coordinate system. While it may not be relevant
+  !       to this mesh, it is called due to an unknown interaction which changes
+  !       results. If it is not applicable to this mesh, it should be removed once
+  !       this issue is resolved.
+  call init_chi_transforms( geostrophic_north_pole, &
+                            null_island, &
+                            equator_latitude )
 
   ! Work out total number of cells
   call global_mpi%global_sum(ncells_2d_local, ncells_2d)
@@ -338,17 +369,17 @@ program cma_test
   call log_event( 'Initialising test', LOG_LEVEL_INFO )
 
   ! Initialise CMA test module
-  call cma_test_init( mesh )
+  call cma_test_init(config,  mesh)
 
   ! Run all requested tests
-  if (do_test_apply_mass_p)             call test_cma_apply_mass_p(tolerance)
-  if (do_test_apply_mass_v)             call test_cma_apply_mass_v(tolerance)
-  if (do_test_apply_div_v)              call test_cma_apply_div_v(tolerance)
-  if (do_test_multiply_div_v_mass_v)    call test_cma_multiply_div_v_mass_v(tolerance)
-  if (do_test_multiply_grad_v_div_v)    call test_cma_multiply_grad_v_div_v(tolerance)
-  if (do_test_add)                      call test_cma_add(tolerance)
-  if (do_test_apply_inv)                call test_cma_apply_inv(tolerance)
-  if (do_test_diag_dhmdht)              call test_cma_diag_DhMDhT(tolerance)
+  if (do_test_apply_mass_p)             call test_cma_apply_mass_p(config, tolerance)
+  if (do_test_apply_mass_v)             call test_cma_apply_mass_v(config, tolerance)
+  if (do_test_apply_div_v)              call test_cma_apply_div_v(config, tolerance)
+  if (do_test_multiply_div_v_mass_v)    call test_cma_multiply_div_v_mass_v(config, tolerance)
+  if (do_test_multiply_grad_v_div_v)    call test_cma_multiply_grad_v_div_v(config, tolerance)
+  if (do_test_add)                      call test_cma_add(config, tolerance)
+  if (do_test_apply_inv)                call test_cma_apply_inv(config, tolerance)
+  if (do_test_diag_dhmdht)              call test_cma_diag_DhMDhT(config, tolerance)
 
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   ! Finalise and close down

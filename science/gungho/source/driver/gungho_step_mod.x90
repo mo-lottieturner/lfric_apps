@@ -45,13 +45,6 @@ module gungho_step_mod
   use moisture_fluxes_alg_mod,        only : moisture_fluxes_alg
   use timestep_method_mod,        only : timestep_method_type, &
                                          get_timestep_method_from_collection
-  use rk_alg_timestep_mod,        only : rk_timestep_type
-  use semi_implicit_timestep_alg_mod, &
-                                  only : semi_implicit_timestep_type
-  use timestepping_config_mod,        only : method, &
-                                             method_semi_implicit, &
-                                             method_rk,            &
-                                             method_no_timestepping
   use update_energy_correction_alg_mod, &
                                   only : update_energy_correction_alg
   use compute_total_energy_alg_mod,   only : compute_total_energy_alg
@@ -172,13 +165,14 @@ module gungho_step_mod
       if ( mod( nint( dt * model_clock%get_step() ), &
                 3600_i_def * reset_hours ) == 0 ) then
 
-        call compute_total_mass_alg( total_dry_mass, rho, mesh )
-        call compute_total_energy_alg( total_energy,                      &
-                                       derived_fields, &
-                                       u, theta, exner, rho, mr,          &
-                                       mesh, twod_mesh )
+        call compute_total_mass_alg( modeldb%config, total_dry_mass, &
+                                     rho, mesh )
+        call compute_total_energy_alg( modeldb%config, total_energy, &
+                                       derived_fields, u, theta,     &
+                                       exner, rho, mr, mesh,         &
+                                       twod_mesh )
 
-        call update_energy_correction_alg(                  &
+        call update_energy_correction_alg(modeldb%config,   &
                                temp_corr_io_value%data(1),  &
                                accumulated_fluxes,          &
                                total_dry_mass, dt,          &
@@ -196,17 +190,16 @@ module gungho_step_mod
              '("fd total_mass = ", E32.24)') total_dry_mass
       call log_event( log_scratch_space, LOG_LEVEL_DEBUG )
 
-      call conservation_algorithm( rho,              &
-                                   u,                &
-                                   theta,            &
-                                   mr,               &
-                                   exner )
+      call conservation_algorithm( modeldb%config, rho, &
+                                   u, theta, mr, exner )
+
       if ( use_moisture ) then
-        call moisture_conservation_alg( rho,              &
-                                        mr,               &
+
+        call moisture_conservation_alg( modeldb%config, rho, mr, &
                                         'After timestep' )
+
         if ( use_physics .and. cloud == cloud_um ) then
-          dA => get_dA_at_w2(mesh%get_id())
+          dA => get_dA_at_w2(modeldb%config, mesh)
           call moisture_fluxes_alg( microphysics_fields, &
                                     convection_fields,   &
                                     turbulence_fields,   &
@@ -215,7 +208,9 @@ module gungho_step_mod
         end if
       end if
 
-      if (write_minmax_tseries) call minmax_tseries(u, 'u', mesh)
+      if (write_minmax_tseries) then
+        call minmax_tseries(modeldb%config, mesh, u, 'u')
+      end if
 
       call log_field_minmax( LOG_LEVEL_INFO, ' u', u )
       call log_field_minmax( LOG_LEVEL_INFO, 'theta', theta )

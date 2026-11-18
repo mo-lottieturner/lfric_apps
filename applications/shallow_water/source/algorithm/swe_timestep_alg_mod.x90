@@ -12,13 +12,13 @@
 module swe_timestep_alg_mod
 
   ! Constants
+  use config_mod,                     only: config_type
   use constants_mod,                  only: i_def, r_def
+  use dycore_constants_mod,           only: stepper_siqn, stepper_rk
   use field_indices_mod,              only: isw_u, &
                                             isw_g, &
                                             isw_b, &
                                             isw_q
-  use sci_geometric_constants_mod,    only: get_coordinates, &
-                                            get_panel_id
   use log_mod,                        only: log_event,         &
                                             log_scratch_space, &
                                             LOG_LEVEL_INFO,    &
@@ -36,7 +36,7 @@ module swe_timestep_alg_mod
                                             tik, LPROF
   use timestepping_config_mod,        only: alpha,            &
                                             outer_iterations, &
-                                            inner_iterations
+                                            inner_iterations_si
   use transport_config_mod,           only: cheap_update
 
   ! Derived Types
@@ -115,12 +115,14 @@ contains
   !> @brief   Initialisation procedure for the timestepping algorithm.
   !> @details Initialises various internal fields from the prognostic fields,
   !!          and sets up the solvers and preconditioners.
+  !> @param[in] config   Application configuration object
   !> @param[in] mesh     Mesh for shallow water app
   !> @param[in] wind     The wind field
   !> @param[in] geopot   The geopotential field
   !> @param[in] buoyancy The buoyancy field
   !> @param[in] q        The potential vorticity field
-  subroutine swe_timestep_alg_init( mesh,     &
+  subroutine swe_timestep_alg_init( config,   &
+                                    mesh,     &
                                     wind,     &
                                     geopot,   &
                                     buoyancy, &
@@ -162,7 +164,8 @@ contains
     implicit none
 
     ! Mesh
-    type(mesh_type), pointer, intent(in) :: mesh
+    type(config_type), intent(in) :: config
+    type(mesh_type),   intent(in) :: mesh
 
     ! Prognostic fields
     type(field_type), intent(in) :: wind
@@ -198,7 +201,7 @@ contains
     if ( time_scheme == time_scheme_semi_implicit ) then
 
       ! Construct Helmholtz operator and preconditioner
-      swe_geopot_operator = swe_geopot_operator_type(state)
+      swe_geopot_operator = swe_geopot_operator_type(config, state)
 
       ! Set up mixed operator
       swe_mixed_operator = swe_mixed_operator_type(state)
@@ -269,12 +272,12 @@ contains
       ! Allocate and construct mixed preconditioner of correct type
       if (si_preconditioner == SI_PRECONDITIONER_PRESSURE) then
          allocate ( swe_mixed_preconditioner, source =                                  &
-           swe_mixed_schur_preconditioner_type(state,                                   &
+           swe_mixed_schur_preconditioner_type(config, state,                           &
                                                swe_geopot_operator%get_Hb_lumped_inv(), &
                                                swe_geopot_solver) )
       else if (si_preconditioner == SI_PRECONDITIONER_DIAGONAL) then
          allocate ( swe_mixed_preconditioner, source = &
-           swe_mixed_diag_preconditioner_type(state) )
+           swe_mixed_diag_preconditioner_type(config, state) )
       else if (si_preconditioner == SI_PRECONDITIONER_NONE) then
          allocate ( swe_mixed_preconditioner, source = &
            null_preconditioner_type() )
@@ -381,6 +384,8 @@ contains
   !!          time level n terms. It then loops over the outer iterations and
   !!          calculates the advection terms, and loops over the inner iterations
   !!          and calls the solver. Finally, the prognostic variables are updated.
+  !> @param[in,out] config       Application namelist configuration object
+  !> @param[in,out] model_clock  Model clock object
   !> @param[in,out] wind         The wind field
   !> @param[in,out] geopot       The geopotential field
   !> @param[in,out] buoyancy     The buoyancy field
@@ -389,7 +394,8 @@ contains
   !> @param[in,out] tracer_pv    The PV tracer field
   !> @param[in,out] tracer_step  The step tracer field
   !> @param[in]     s_geopot     The surface geopotential field
-  subroutine swe_timestep_alg_si( model_clock,  &
+  subroutine swe_timestep_alg_si( config,       &
+                                  model_clock,  &
                                   wind,         &
                                   geopot,       &
                                   buoyancy,     &
@@ -399,11 +405,13 @@ contains
                                   tracer_step,  &
                                   s_geopot)
 
-    use swe_rhs_alg_mod,   only: swe_rhs_alg
+    use swe_rhs_alg_mod, only: swe_rhs_alg
 
     implicit none
 
+    type(config_type),       intent(in) :: config
     class(model_clock_type), intent(in) :: model_clock
+
     ! Prognostic fields, potential vorticity, and surface geopotential
     type(field_type), intent(inout) :: wind
     type(field_type), intent(inout) :: geopot
@@ -458,10 +466,10 @@ contains
               * real(model_clock%get_seconds_per_step(), r_def)
 
     ! Compute timestep n part of rhs of the shallow water equations system
-    call swe_rhs_alg( rhs_n, beta_dt, state_n, s_geopot )
+    call swe_rhs_alg( config, rhs_n, beta_dt, state_n, s_geopot )
 
     ! Set predictors for transport
-    call swe_predictors_alg( adv_fields, state_n%vector(isw_u), rhs_n%vector(isw_u), beta_dt )
+    call swe_predictors_alg( config, adv_fields, state_n%vector(isw_u), rhs_n%vector(isw_u), beta_dt )
 
     ! Set up mass variable for tracer transport
     call mass_n%initialise(vector_space = geopot%get_function_space())
@@ -481,12 +489,14 @@ contains
     outer_dynamics_loop: do outer = 1,outer_iterations
 
       ! Advect quantities
-      call swe_transport_control_alg_step( rhs_adv,     &
-                                           adv_fields,  &
-                                           state_n,     &
-                                           state,       &
-                                           model_clock, &
-                                           outer,       &
+      call swe_transport_control_alg_step( config,       &
+                                           rhs_adv,      &
+                                           adv_fields,   &
+                                           state_n,      &
+                                           state,        &
+                                           model_clock,  &
+                                           outer,        &
+                                           stepper_siqn, &
                                            wind_prev )
 
       ! Set wind_prev to be latest estimate of wind
@@ -496,12 +506,13 @@ contains
       if ( cheap_update .AND. (outer < outer_iterations) ) then
         ! Use transported fields from current iteration in next
         ! iteration transport step
-        call mass_matrix_solver_alg( wind_fv_inc, rhs_adv%vector(isw_u) )
-        call mass_matrix_solver_alg( buoyancy_fv_inc, rhs_adv%vector(isw_b) )
+        call mass_matrix_solver_alg( config, wind_fv_inc, rhs_adv%vector(isw_u) )
+        call mass_matrix_solver_alg( config, buoyancy_fv_inc, rhs_adv%vector(isw_b) )
         call invoke( inc_X_plus_Y( adv_fields%vector(isw_g), rhs_adv%vector(isw_g) ), &
                      inc_X_plus_Y( adv_fields%vector(isw_u), wind_fv_inc ),           &
                      inc_X_plus_Y( adv_fields%vector(isw_b), buoyancy_fv_inc ) )
-        call swe_init_vorticity_alg(adv_fields%vector(isw_u), &
+        call swe_init_vorticity_alg(config,                   &
+                                    adv_fields%vector(isw_u), &
                                     adv_fields%vector(isw_g), &
                                     adv_fields%vector(isw_q))
       end if
@@ -515,18 +526,19 @@ contains
         ! Get transported mass for tracer transport
         call invoke( X_plus_Y(mass_np1, mass_n, rhs_adv%vector(isw_g)) )
         ! Transport tracers
-        call swe_tracer_transport_alg(tracer_const, tracer_pv, tracer_step,    &
-                                      mass_n, mass_np1, state_n%vector(isw_u), &
-                                      state%vector(isw_u), model_clock)
+        call swe_tracer_transport_alg( config,                                  &
+                                       tracer_const, tracer_pv, tracer_step,    &
+                                       mass_n, mass_np1, state_n%vector(isw_u), &
+                                       state%vector(isw_u), model_clock )
       end if
 
       !============================================================================
       ! Start the inner loop
       !============================================================================
-      inner_dynamics_loop: do inner = 1,inner_iterations
+      inner_dynamics_loop: do inner = 1,inner_iterations_si(outer)
 
         ! Build residual: -R = -( rhs(state, alpha) - rhs(state_n, alpha-1) - rhs_adv)
-        call swe_rhs_alg( rhs_np1, alpha_dt, state, s_geopot )
+        call swe_rhs_alg( config, rhs_np1, alpha_dt, state, s_geopot )
 
         call rhs_np1%axpy(-1.0_r_def, rhs_n)
         call rhs_np1%scale(-1.0_r_def)
@@ -535,7 +547,7 @@ contains
         ! Solve mixed system
         call log_event( "Shallow Water Equations: mixed solve:", LOG_LEVEL_INFO )
         call state_inc%set_scalar(0.0_r_def)
-        call swe_mixed_solver%apply(state_inc, rhs_np1)
+        call swe_mixed_solver%apply(config, state_inc, rhs_np1)
         call state%axpy(1.0_r_def,state_inc)
 
         write( log_scratch_space, '(A,2I3)' ) 'loop indices (o, i): ', &
@@ -573,7 +585,8 @@ contains
 
     ! Resynchronise vorticity with velocity field
     call log_event( "Resynchronising vorticity, returning fields", LOG_LEVEL_INFO)
-    call swe_init_vorticity_alg(state%vector(isw_u), &
+    call swe_init_vorticity_alg(config,              &
+                                state%vector(isw_u), &
                                 state%vector(isw_g), &
                                 state%vector(isw_q))
 
@@ -595,6 +608,7 @@ contains
   !> @details An algorithm for timestepping the shallow water equations
   !>          using an explicit forwards Euler method.
   !>
+  !> @param[in]     config      Application namelist configuration object
   !> @param[in]     model_clock Time within the model
   !> @param[in,out] wind        The wind field
   !> @param[in,out] geopot      The geopotential field
@@ -602,7 +616,8 @@ contains
   !> @param[in,out] q           The potential vorticity field
   !> @param[in]     s_geopot    The surface geopotential field
   !>
-  subroutine swe_timestep_alg_euler( model_clock, &
+  subroutine swe_timestep_alg_euler( config,      &
+                                     model_clock, &
                                      wind,        &
                                      geopot,      &
                                      buoyancy,    &
@@ -613,7 +628,9 @@ contains
 
     implicit none
 
+    type(config_type),       intent(in) :: config
     class(model_clock_type), intent(in) :: model_clock
+
     ! Prognostic fields, potential vorticity, and surface geopotential
     type( field_type ), intent( inout ) :: wind
     type( field_type ), intent( inout ) :: geopot
@@ -652,17 +669,19 @@ contains
     beta_dt  = -1.0_r_def * real(model_clock%get_seconds_per_step(), r_def)
 
     ! Compute timestep n part of rhs of the shallow water equations system
-    call swe_rhs_alg( rhs_n, beta_dt, state_n, s_geopot )
+    call swe_rhs_alg( config, rhs_n, beta_dt, state_n, s_geopot )
 
     ! Advect quantities
     outer_iteration = 1_i_def
     call rhs_adv%set_scalar(0.0_r_def)
-    call swe_transport_control_alg_step( rhs_adv,     &
-                                         adv_fields,  &
-                                         state_n,     &
-                                         state,       &
-                                         model_clock, &
-                                         outer_iteration )
+    call swe_transport_control_alg_step( config,          &
+                                         rhs_adv,         &
+                                         adv_fields,      &
+                                         state_n,         &
+                                         state,           &
+                                         model_clock,     &
+                                         outer_iteration, &
+                                         stepper_rk )
 
     ! Put RHS together
     call rhs_n%axpy(1.0_r_def, rhs_adv)
@@ -676,19 +695,17 @@ contains
 
     ! Update velocity
     call log_event( "update wind", LOG_LEVEL_INFO)
-    call mass_matrix_solver_alg( wind, rhs_u )
+    call mass_matrix_solver_alg( config, wind, rhs_u )
 
     ! Update buoyancy
     if ( thermal_swe ) then
       call log_event( "update buoyancy", LOG_LEVEL_INFO)
-      call mass_matrix_solver_alg( buoyancy, rhs_b )
+      call mass_matrix_solver_alg( config, buoyancy, rhs_b )
     end if
 
     ! Resynchronise vorticity with velocity field
     call log_event( "Resynchronising vorticity, returning fields", LOG_LEVEL_INFO)
-    call swe_init_vorticity_alg( wind, &
-                                 geopot, &
-                                 q)
+    call swe_init_vorticity_alg( config, wind, geopot, q )
 
   end subroutine swe_timestep_alg_euler
 
@@ -708,6 +725,7 @@ contains
   !!          \f[ y_2 = 3/4y^n + 1/4 F(y_1) \f]
   !!          \f[ y^{n+1} = 1/3y^n + 2/3 F(y_2) \f]
   !!
+  !> @param[in]     config      Application namelist configuration object
   !> @param[in]     model_clock Time within the model
   !> @param[in,out] wind        The wind field
   !> @param[in,out] geopot      The geopotential field
@@ -715,7 +733,8 @@ contains
   !> @param[in,out] q           The potential vorticity field
   !> @param[in]     s_geopot    The surface geopotential field
   !>
-  subroutine swe_timestep_alg_ssprk3( model_clock, &
+  subroutine swe_timestep_alg_ssprk3( config,      &
+                                      model_clock, &
                                       wind,        &
                                       geopot,      &
                                       buoyancy,    &
@@ -724,7 +743,9 @@ contains
 
     implicit none
 
+    type(config_type),       intent(in) :: config
     class(model_clock_type), intent(in) :: model_clock
+
     ! Prognostic fields, potential vorticity, and surface geopotential
     type( field_type ), intent( inout ) :: wind
     type( field_type ), intent( inout ) :: geopot
@@ -781,7 +802,8 @@ contains
                  setval_X(q_1,q)  )
 
     ! Forward Euler call of y^n
-    call swe_timestep_alg_euler( model_clock, &
+    call swe_timestep_alg_euler( config,      &
+                                 model_clock, &
                                  wind_1,      &
                                  geopot_1,    &
                                  buoyancy_1,  &
@@ -795,7 +817,8 @@ contains
                  setval_X(q_fe1,q_1)  )
 
     ! Forward Euler call of y_1
-    call swe_timestep_alg_euler( model_clock,  &
+    call swe_timestep_alg_euler( config,       &
+                                 model_clock,  &
                                  wind_fe1,     &
                                  geopot_fe1,   &
                                  buoyancy_fe1, &
@@ -806,7 +829,7 @@ contains
     call invoke( aX_plus_bY( wind_2, 0.75_r_def, wind_n, 0.25_r_def, wind_fe1 ),       &
                  aX_plus_bY( geopot_2, 0.75_r_def, geopot_n, 0.25_r_def, geopot_fe1 ), &
                  aX_plus_bY( buoyancy_2, 0.75_r_def, buoyancy_n, 0.25_r_def, buoyancy_fe1 ) )
-    call swe_init_vorticity_alg(wind_2, geopot_2, q_2)
+    call swe_init_vorticity_alg(config, wind_2, geopot_2, q_2)
 
     ! Set up final stage variables
     call invoke( setval_X(wind_fe2,wind_2),         &
@@ -815,7 +838,8 @@ contains
                  setval_X(q_fe2,q_2)  )
 
     ! Forward Euler call of y_2
-    call swe_timestep_alg_euler( model_clock,  &
+    call swe_timestep_alg_euler( config,       &
+                                 model_clock,  &
                                  wind_fe2,     &
                                  geopot_fe2,   &
                                  buoyancy_fe2, &
@@ -830,7 +854,7 @@ contains
     call invoke( aX_plus_bY( wind, onethird, wind_n, twothird, wind_fe2 ),       &
                  aX_plus_bY( geopot, onethird, geopot_n, twothird, geopot_fe2 ), &
                  aX_plus_bY( buoyancy, onethird, buoyancy_n, twothird, buoyancy_fe2 ) )
-    call swe_init_vorticity_alg(wind, geopot, q)
+    call swe_init_vorticity_alg(config, wind, geopot, q)
 
     if ( LPROF ) call stop_timing( id_swe_ssprk3, 'swe_timestep_alg_ssprk3' )
 
@@ -854,6 +878,7 @@ contains
   !!          \f[ y^{n+1} = (3/8)*y^n + (1/24)*F(y^n) + (1/4)*F(y_1)
   !!            + (1/6)*F(y_2) + (1/6)*F(y_3) \f]
   !!
+  !> @param[in]     config      Application namelist configuration object
   !> @param[in]     model_clock Time within the model
   !> @param[in,out] wind        The wind field
   !> @param[in,out] geopot      The geopotential field
@@ -861,16 +886,19 @@ contains
   !> @param[in,out] q           The potential vorticity field
   !> @param[in]     s_geopot    The surface geopotential field
 
-  subroutine swe_timestep_alg_rk4(  model_clock, &
-                                    wind,        &
-                                    geopot,      &
-                                    buoyancy,    &
-                                    q,           &
-                                    s_geopot )
+  subroutine swe_timestep_alg_rk4( config,      &
+                                   model_clock, &
+                                   wind,        &
+                                   geopot,      &
+                                   buoyancy,    &
+                                   q,           &
+                                   s_geopot )
 
   implicit none
 
+  type(config_type),       intent(in) :: config
   class(model_clock_type), intent(in) :: model_clock
+
   ! Prognostic fields, potential vorticity, and surface geopotential
   type( field_type ), intent( inout ) :: wind
   type( field_type ), intent( inout ) :: geopot
@@ -947,7 +975,8 @@ contains
                setval_X(q_fen,q))
 
   ! Forward Euler call, F(y^n)
-  call swe_timestep_alg_euler( model_clock,  &
+  call swe_timestep_alg_euler( config,       &
+                               model_clock,  &
                                wind_fen,     &
                                geopot_fen,   &
                                buoyancy_fen, &
@@ -958,7 +987,7 @@ contains
   call invoke( aX_plus_bY( wind_1, 0.5_r_def, wind_n, 0.5_r_def, wind_fen ),       &
                aX_plus_bY( geopot_1, 0.5_r_def, geopot_n, 0.5_r_def, geopot_fen ), &
                aX_plus_bY( buoyancy_1, 0.5_r_def, buoyancy_n, 0.5_r_def, buoyancy_fen ) )
-  call swe_init_vorticity_alg(wind_1, geopot_1, q_1)
+  call swe_init_vorticity_alg(config, wind_1, geopot_1, q_1)
 
   ! Set up FE_1 step variables
   call invoke( setval_X(wind_fe1,wind_1),         &
@@ -967,7 +996,8 @@ contains
                setval_X(q_fe1,q_1))
 
   ! Forward Euler call, F(y1)
-  call swe_timestep_alg_euler( model_clock,  &
+  call swe_timestep_alg_euler( config,       &
+                               model_clock,  &
                                wind_fe1,     &
                                geopot_fe1,   &
                                buoyancy_fe1, &
@@ -981,7 +1011,7 @@ contains
                inc_X_plus_bY( wind_2, 0.5_r_def, wind_fe1 ),                                &
                inc_X_plus_bY( geopot_2, 0.5_r_def, geopot_fe1 ),                            &
                inc_X_plus_bY( buoyancy_2, 0.5_r_def, buoyancy_fe1 ) )
-  call swe_init_vorticity_alg(wind_2, geopot_2, q_2)
+  call swe_init_vorticity_alg(config, wind_2, geopot_2, q_2)
 
 
   ! Set up FE_2 step variables
@@ -991,7 +1021,8 @@ contains
                setval_X(q_fe2,q_2))
 
   ! Forward Euler call, F(y2)
-  call swe_timestep_alg_euler( model_clock,  &
+  call swe_timestep_alg_euler( config,       &
+                               model_clock,  &
                                wind_fe2,     &
                                geopot_fe2,   &
                                buoyancy_fe2, &
@@ -1008,7 +1039,7 @@ contains
                inc_X_plus_bY( wind_3, 1.0_r_def, wind_fe2 ),                               &
                inc_X_plus_bY( geopot_3, 1.0_r_def, geopot_fe2 ),                           &
                inc_X_plus_bY( buoyancy_3, 1.0_r_def, buoyancy_fe2 ) )
-  call swe_init_vorticity_alg(wind_3, geopot_3, q_3)
+  call swe_init_vorticity_alg(config, wind_3, geopot_3, q_3)
 
   ! Set up FE_3 step variables
   call invoke( setval_X(wind_fe3,wind_3),         &
@@ -1017,7 +1048,8 @@ contains
                setval_X(q_fe3,q_3))
 
   ! Forward Euler call, F(y3)
-  call swe_timestep_alg_euler( model_clock,  &
+  call swe_timestep_alg_euler( config,       &
+                               model_clock,  &
                                wind_fe3,     &
                                geopot_fe3,   &
                                buoyancy_fe3, &
@@ -1037,7 +1069,7 @@ contains
                inc_X_plus_bY( wind, one_sixth, wind_fe3 ),                                         &
                inc_X_plus_bY( geopot, one_sixth, geopot_fe3 ),                                     &
                inc_X_plus_bY( buoyancy, one_sixth, buoyancy_fe3 ) )
-  call swe_init_vorticity_alg(wind, geopot, q)
+  call swe_init_vorticity_alg(config, wind, geopot, q)
 
   if ( LPROF ) call stop_timing( id_swe_rk4, 'swe_timestep_alg_rk4' )
 

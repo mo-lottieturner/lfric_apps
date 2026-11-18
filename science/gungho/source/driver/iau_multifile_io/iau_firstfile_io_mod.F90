@@ -9,17 +9,16 @@
 module iau_firstfile_io_mod
 
   use calendar_mod,              only: calendar_type
-  use constants_mod,             only: str_def, l_def
+  use constants_mod,             only: str_def, l_def, i_def, r_def
   use driver_modeldb_mod,        only: modeldb_type
   use field_collection_mod,      only: field_collection_type
   use field_mod,                 only: field_type
   use file_mod,                  only: FILE_MODE_READ
   use inventory_by_mesh_mod,     only: inventory_by_mesh_type
-  use io_context_mod,            only: callback_clock_arg
   use lfric_string_mod,          only: split_string
   use lfric_xios_context_mod,    only: lfric_xios_context_type
   use lfric_xios_file_mod,       only: lfric_xios_file_type, &
-                                       OPERATION_ONCE
+                                       OPERATION_ONCE, CONVENTION_UGRID
   use linked_list_mod,           only: linked_list_type
   use mesh_collection_mod,       only: mesh_collection
   use mesh_mod,                  only: mesh_type
@@ -70,10 +69,6 @@ contains
 
     logical(l_def) :: use_xios_io
 
-    procedure(callback_clock_arg), pointer :: before_close
-
-    nullify(before_close)
-
     chi_inventory => get_chi_inventory()
     panel_id_inventory => get_panel_id_inventory()
 
@@ -107,22 +102,27 @@ contains
            io_mode=FILE_MODE_READ, &
            freq=1, &
            operation=OPERATION_ONCE, &
+           file_convention=CONVENTION_UGRID, &
            fields_in_file=multifile_fields))
 
     end if ! use_xios_io
 
     ! Initialise XIOS context
     mesh => mesh_collection%get_mesh(prime_mesh_name)
+
     call chi_inventory%get_field_array(mesh, chi)
     call panel_id_inventory%get_field(mesh, panel_id)
 
     allocate(tmp_calendar, source=step_calendar_type(time_origin, time_start))
 
-    call io_context%initialise_xios_context( modeldb%mpi%get_comm(),      &
-                                             chi, panel_id,               &
-                                             modeldb%clock, tmp_calendar, &
-                                             before_close,                &
+    call io_context%initialise_xios_context( modeldb%config,         &
+                                             modeldb%mpi%get_comm(), &
+                                             chi, panel_id,          &
+                                             modeldb%clock,          &
+                                             tmp_calendar,           &
                                              start_at_zero=.true. )
+    call io_context%close_context_definition()
+
     ! Finalise XIOS context
     call io_context%finalise_xios_context()
 

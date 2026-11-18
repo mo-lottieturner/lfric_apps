@@ -17,38 +17,32 @@
 module assign_orography_field_mod
 
   use constants_mod,                  only : r_def, i_def, l_def
-  use orography_config_mod,           only : orog_init_option,                 &
-                                             orog_init_option_analytic,        &
-                                             orog_init_option_ancil,           &
-                                             orog_init_option_none,            &
+  use orography_config_mod,           only : orog_init_option,          &
+                                             orog_init_option_analytic, &
+                                             orog_init_option_ancil,    &
+                                             orog_init_option_none,     &
                                              orog_init_option_start_dump
-  use base_mesh_config_mod,           only : geometry,                         &
-                                             geometry_spherical,               &
-                                             topology,                         &
-                                             topology_fully_periodic,          &
-                                             prime_mesh_name
-  use finite_element_config_mod,      only : coord_system,                     &
-                                             coord_order,                      &
-                                             coord_system_xyz
   use mesh_collection_mod,            only : mesh_collection
+  use mesh_mod,                       only : mesh_type, geometry_spherical
   use coord_transform_mod,            only : xyz2llr, llr2xyz
   use sci_chi_transform_mod,          only : chi2llr
   use orography_helper_functions_mod, only : z2eta_linear, &
                                              eta2z_linear, &
                                              eta2z_smooth
   use analytic_orography_mod,         only : orography_profile
-  use extrusion_config_mod,           only : stretching_height, &
-                                             stretching_method, &
-                                             stretching_method_linear
+  use extrusion_config_mod,           only : stretching_method_linear
   use log_mod,                        only : log_event,      &
                                              LOG_LEVEL_INFO, &
                                              LOG_LEVEL_ERROR
   use fs_continuity_mod,              only : W0, Wchi
   use function_space_mod,             only : BASIS
 
-  ! TODO #180: this can be removed when surface altitude is passed in at W0
-  use function_space_collection_mod,  only : function_space_collection
-  use surface_altitude_alg_mod,       only : surface_altitude_alg
+  ! Configuration modules
+  use base_mesh_config_mod,      only: geometry, topology
+  use finite_element_config_mod, only: coord_system, &
+                                       coord_order,  &
+                                       coord_system_xyz
+  use planet_config_mod,         only: scaled_radius
 
   implicit none
 
@@ -65,11 +59,13 @@ module assign_orography_field_mod
 
   interface
 
-    subroutine analytic_orography_interface(nlayers,                           &
-                                            ndf_chi, undf_chi, map_chi,        &
-                                            ndf_pid, undf_pid, map_pid,        &
-                                            domain_surface, domain_height,     &
-                                            chi_1_in, chi_2_in, chi_3_in,      &
+    subroutine analytic_orography_interface(nlayers,                       &
+                                            ndf_chi, undf_chi, map_chi,    &
+                                            ndf_pid, undf_pid, map_pid,    &
+                                            domain_surface, domain_height, &
+                                            stretching_height,             &
+                                            stretching_method,             &
+                                            chi_1_in, chi_2_in, chi_3_in,  &
                                             chi_1, chi_2, chi_3, panel_id)
 
       import :: i_def, r_def
@@ -79,6 +75,8 @@ module assign_orography_field_mod
       integer(kind=i_def), intent(in)    :: nlayers, undf_chi, undf_pid
       integer(kind=i_def), intent(in)    :: ndf_chi, ndf_pid
       integer(kind=i_def), intent(in)    :: map_chi(ndf_chi), map_pid(ndf_pid)
+      integer(kind=i_def), intent(in)    :: stretching_method
+      real(kind=r_def),    intent(in)    :: stretching_height
       real(kind=r_def),    intent(in)    :: domain_surface, domain_height
       real(kind=r_def),    intent(in)    :: chi_1_in(undf_chi)
       real(kind=r_def),    intent(in)    :: chi_2_in(undf_chi)
@@ -94,14 +92,16 @@ module assign_orography_field_mod
 
   interface
 
-    subroutine ancil_orography_interface(nlayers,                              &
-                                         chi_1, chi_2, chi_3,                  &
-                                         chi_1_in, chi_2_in, chi_3_in,         &
-                                         panel_id,                             &
-                                         surface_altitude,                     &
-                                         domain_surface, domain_height,        &
-                                         ndf_chi, undf_chi, map_chi,           &
-                                         ndf_pid, undf_pid, map_pid,           &
+    subroutine ancil_orography_interface(nlayers,                       &
+                                         chi_1, chi_2, chi_3,           &
+                                         chi_1_in, chi_2_in, chi_3_in,  &
+                                         panel_id,                      &
+                                         surface_altitude,              &
+                                         domain_surface, domain_height, &
+                                         stretching_height,             &
+                                         stretching_method,             &
+                                         ndf_chi, undf_chi, map_chi,    &
+                                         ndf_pid, undf_pid, map_pid,    &
                                          ndf, undf, map, basis)
 
       import :: i_def, r_def
@@ -112,6 +112,8 @@ module assign_orography_field_mod
       integer(kind=i_def), intent(in)    :: ndf_chi, ndf_pid, ndf
       integer(kind=i_def), intent(in)    :: map_chi(ndf_chi), map_pid(ndf_pid)
       integer(kind=i_def), intent(in)    :: map(ndf)
+      integer(kind=i_def), intent(in)    :: stretching_method
+      real(kind=r_def),    intent(in)    :: stretching_height
       real(kind=r_def),    intent(in)    :: basis(ndf,ndf_chi)
       real(kind=r_def),    intent(in)    :: domain_surface, domain_height
       real(kind=r_def),    intent(in)    :: surface_altitude(undf)
@@ -140,19 +142,22 @@ contains
   !> routines calculate analytic orography from horizontal coordinates or else
   !> use the surface_altitude field and then update the vertical coordinate.
   !>
-  !> @param[in,out] chi_inventory         Contains all of the model's coordinate
-  !!                                      fields, itemised by mesh
-  !> @param[in]     panel_id_inventory    Contains all of the model's panel ID
-  !!                                      fields, itemised by mesh
-  !> @param[in]     mesh                  Mesh to apply orography to
-  !> @param[in]     surface_altitude      Field containing the surface altitude
+  !> @param[in,out] chi_inventory       Contains all of the model's coordinate
+  !!                                    fields, itemised by mesh
+  !> @param[in]     panel_id_inventory  Contains all of the model's panel ID
+  !!                                    fields, itemised by mesh
+  !> @param[in]     mesh                Mesh to apply orography to
+  !> @param[in]     stretching_height   Physical height above which surface altitude
+  !!                                    does not influence layer height (m)
+  !> @param[in]     stretching_method   Method of generating stretching
+  !> @param[in]     surface_altitude    Field containing the surface altitude
   !=============================================================================
-  subroutine assign_orography_field(chi_inventory, panel_id_inventory,         &
-                                    mesh, surface_altitude)
+  subroutine assign_orography_field(chi_inventory, panel_id_inventory,   &
+                                    mesh, stretching_height,             &
+                                    stretching_method, surface_altitude)
 
     use inventory_by_mesh_mod,          only : inventory_by_mesh_type
     use field_mod,                      only : field_type, field_proxy_type
-    use mesh_mod,                       only : mesh_type
     use domain_mod,                     only : domain_type
     use orography_helper_functions_mod, only : set_horizontal_domain_size
     use orography_config_mod,           only : orog_init_option,               &
@@ -166,6 +171,8 @@ contains
     type(inventory_by_mesh_type), intent(inout) :: chi_inventory
     type(inventory_by_mesh_type), intent(in)    :: panel_id_inventory
     type(mesh_type),     pointer, intent(in)    :: mesh
+    integer(kind=i_def),          intent(in)    :: stretching_method
+    real(kind=r_def),             intent(in)    :: stretching_height
 
     ! We keep the surface_altitude as an optional argument since it is
     ! not needed for miniapps that only want analytic orography
@@ -189,11 +196,6 @@ contains
     integer(kind=i_def), pointer :: map_sf(:,:)
 
     type(field_proxy_type)       :: sfc_alt_proxy
-
-    ! TODO #180: this will be removed when input surface altitude is in W0
-    type(field_type)             :: surface_altitude_w0
-    integer(kind=i_def)          :: surface_order_h, surface_order_v
-    type(mesh_type),     pointer :: sf_mesh
 
     real(kind=r_def),    pointer :: nodes(:,:)
     integer(kind=i_def)          :: dim_sf, df, df_sf, depth
@@ -230,7 +232,7 @@ contains
          "Assigning analytic orography.", LOG_LEVEL_INFO )
 
       ! Point to appropriate procedure to assign orography
-      if (geometry == geometry_spherical) then
+      if (mesh%geometry() == geometry_spherical) then
         if (coord_system == coord_system_xyz) then
           analytic_orography => analytic_orography_spherical_xyz
         else
@@ -268,6 +270,7 @@ contains
                 nlayers, ndf_chi, undf_chi, map_chi(:,cell),                   &
                 ndf_pid, undf_pid, map_pid(:,cell),                            &
                 domain_surface, domain_height,                                 &
+                stretching_height, stretching_method,                          &
                 chi_in_proxy(1)%data, chi_in_proxy(2)%data,                    &
                 chi_in_proxy(3)%data,                                          &
                 chi_proxy(1)%data, chi_proxy(2)%data, chi_proxy(3)%data,       &
@@ -281,7 +284,7 @@ contains
          "Assigning orography from surface_altitude field.", LOG_LEVEL_INFO )
 
       ! Point to appropriate procedure to assign orography
-      if (geometry == geometry_spherical) then
+      if (mesh%geometry() == geometry_spherical) then
         if (coord_system == coord_system_xyz) then
           ancil_orography => ancil_orography_spherical_xyz
         else
@@ -296,35 +299,6 @@ contains
       call chi(2)%copy_field_serial(chi_in(2))
       call chi(3)%copy_field_serial(chi_in(3))
 
-      ! ---------------------------------------------------------------------- !
-      ! Copy surface altitude to W0
-      ! ---------------------------------------------------------------------- !
-      ! TODO #180: this section will be removed when surface altitude is passed
-      ! in at W0
-      if ( present(surface_altitude) ) then
-        ! Set up the surface altitude field on W0 points
-        sf_mesh => surface_altitude%get_mesh()
-        surface_order_h = surface_altitude%get_element_order_h()
-        surface_order_v = surface_altitude%get_element_order_v()
-        call surface_altitude_w0%initialise( vector_space =           &
-           function_space_collection%get_fs(sf_mesh, surface_order_h, &
-                                            surface_order_v, W0),     &
-                                             halo_depth = sf_mesh%get_halo_depth() )
-
-        if (surface_altitude%which_function_space() == W0) then
-          call surface_altitude%copy_field_serial(surface_altitude_w0)
-        else
-          call surface_altitude_alg( surface_altitude_w0, surface_altitude )
-        end if
-
-        call log_field_minmax( LOG_LEVEL_INFO, 'srf_alt', surface_altitude )
-        call log_field_minmax( LOG_LEVEL_INFO, 'srf_alt_w0', &
-                                                      surface_altitude_w0 )
-
-        nullify ( sf_mesh )
-      end if
-      ! ---------------------------------------------------------------------- !
-
       ! Break encapsulation and get the proxy
       chi_proxy(1) = chi(1)%get_proxy()
       chi_proxy(2) = chi(2)%get_proxy()
@@ -333,7 +307,7 @@ contains
       chi_in_proxy(2) = chi_in(2)%get_proxy()
       chi_in_proxy(3) = chi_in(3)%get_proxy()
       panel_id_proxy = panel_id%get_proxy()
-      sfc_alt_proxy = surface_altitude_w0%get_proxy()
+      sfc_alt_proxy = surface_altitude%get_proxy()
 
       undf_chi = chi_proxy(1)%vspace%get_undf()
       ndf_chi  = chi_proxy(1)%vspace%get_ndf()
@@ -373,6 +347,7 @@ contains
             chi_in_proxy(1)%data, chi_in_proxy(2)%data, chi_in_proxy(3)%data,  &
             panel_id_proxy%data, sfc_alt_proxy%data,                           &
             domain_surface, domain_height,                                     &
+            stretching_height, stretching_method,                              &
             ndf_chi, undf_chi, map_chi(:,cell),                                &
             ndf_pid, undf_pid, map_pid(:,cell),                                &
             ndf_sf, undf_sf, map_sf(:,cell), basis_sf_on_chi                   &
@@ -406,6 +381,9 @@ contains
   !> @param[in]     map_pid        Indirection map for panel_id
   !> @param[in]     domain_surface Physical height of flat domain surface (m)
   !> @param[in]     domain_height  Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     chi_1_in       1st coordinate field in Wchi (input)
   !> @param[in]     chi_2_in       2nd coordinate field in Wchi (input)
   !> @param[in]     chi_3_in       3rd coordinate field in Wchi (input)
@@ -418,6 +396,8 @@ contains
                                               ndf_chi, undf_chi, map_chi,      &
                                               ndf_pid, undf_pid, map_pid,      &
                                               domain_surface, domain_height,   &
+                                              stretching_height,               &
+                                              stretching_method,               &
                                               chi_1_in, chi_2_in, chi_3_in,    &
                                               chi_1, chi_2, chi_3, panel_id)
 
@@ -428,6 +408,8 @@ contains
     integer(kind=i_def), intent(in)    :: ndf_chi, ndf_pid
     integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
     integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+    integer(kind=i_def), intent(in)    :: stretching_method
+    real(kind=r_def),    intent(in)    :: stretching_height
     real(kind=r_def),    intent(in)    :: domain_surface, domain_height
     real(kind=r_def),    intent(in)    :: chi_1_in(undf_chi), chi_2_in(undf_chi)
     real(kind=r_def),    intent(in)    :: chi_3_in(undf_chi)
@@ -501,6 +483,9 @@ contains
   !> @param[in]     map_pid        Indirection map for panel_id
   !> @param[in]     domain_surface Physical height of flat domain surface (m)
   !> @param[in]     domain_height  Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     chi_1_in       1st coordinate field in Wchi (input)
   !> @param[in]     chi_2_in       2nd coordinate field in Wchi (input)
   !> @param[in]     chi_3_in       3rd coordinate field in Wchi (input)
@@ -514,6 +499,8 @@ contains
                                                  ndf_pid, undf_pid, map_pid,   &
                                                  domain_surface,               &
                                                  domain_height,                &
+                                                 stretching_height,            &
+                                                 stretching_method,            &
                                                  chi_1_in, chi_2_in, chi_3_in, &
                                                  chi_1, chi_2, chi_3,          &
                                                  panel_id)
@@ -525,6 +512,8 @@ contains
     integer(kind=i_def), intent(in)    :: ndf_chi, ndf_pid
     integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
     integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+    integer(kind=i_def), intent(in)    :: stretching_method
+    real(kind=r_def),    intent(in)    :: stretching_height
     real(kind=r_def),    intent(in)    :: domain_surface, domain_height
     real(kind=r_def),    intent(in)    :: chi_1_in(undf_chi), chi_2_in(undf_chi)
     real(kind=r_def),    intent(in)    :: chi_3_in(undf_chi)
@@ -549,10 +538,10 @@ contains
         ! Model coordinates need to be converted to (long,lat,r) for reading
         ! analytic orography
         radius = chi_3_in(dfk) + domain_surface
-        call chi2llr(                                                          &
-            chi_1_in(dfk), chi_2_in(dfk), radius, ipanel,                      &
-            longitude, latitude, dummy_radius                                  &
-        )
+        call chi2llr(                                        &
+            chi_1_in(dfk), chi_2_in(dfk), radius, ipanel,    &
+            geometry, topology, coord_system, scaled_radius, &
+            longitude, latitude, dummy_radius )
 
         ! Calculate surface height for each DoF using selected analytic orography
         surface_height = orography_profile%analytic_orography(longitude, latitude)
@@ -593,6 +582,9 @@ contains
   !> @param[in]     map_pid        Indirection map for panel_id
   !> @param[in]     domain_surface Physical height of flat domain surface (m)
   !> @param[in]     domain_height  Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     chi_1_in       1st coordinate field in Wchi (input)
   !> @param[in]     chi_2_in       2nd coordinate field in Wchi (input)
   !> @param[in]     chi_3_in       3rd coordinate field in Wchi (input)
@@ -606,6 +598,8 @@ contains
                                           ndf_pid, undf_pid, map_pid,          &
                                           domain_surface,                      &
                                           domain_height,                       &
+                                          stretching_height,                   &
+                                          stretching_method,                   &
                                           chi_1_in, chi_2_in, chi_3_in,        &
                                           chi_1, chi_2, chi_3,                 &
                                           panel_id)
@@ -617,6 +611,8 @@ contains
     integer(kind=i_def), intent(in)    :: ndf_chi, ndf_pid
     integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
     integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+    integer(kind=i_def), intent(in)    :: stretching_method
+    real(kind=r_def),    intent(in)    :: stretching_height
     real(kind=r_def),    intent(in)    :: domain_surface, domain_height
     real(kind=r_def),    intent(in)    :: chi_1_in(undf_chi), chi_2_in(undf_chi)
     real(kind=r_def),    intent(in)    :: chi_3_in(undf_chi)
@@ -675,6 +671,9 @@ contains
   !> @param[in]     surface_altitude Surface altitude field data
   !> @param[in]     domain_surface   Physical height of flat domain surface (m)
   !> @param[in]     domain_height    Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     ndf_chi          Num DoFs per cell for map_chi
   !> @param[in]     undf_chi         Column coords' num DoFs this partition
   !> @param[in]     map_chi          Indirection map for coordinate field
@@ -692,6 +691,8 @@ contains
                                            panel_id,                           &
                                            surface_altitude,                   &
                                            domain_surface, domain_height,      &
+                                           stretching_height,                  &
+                                           stretching_method,                  &
                                            ndf_chi, undf_chi,                  &
                                            map_chi,                            &
                                            ndf_pid, undf_pid,                  &
@@ -708,6 +709,8 @@ contains
   integer(kind=i_def), intent(in)    :: map(ndf)
   integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
   integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+  integer(kind=i_def), intent(in)    :: stretching_method
+  real(kind=r_def),    intent(in)    :: stretching_height
   real(kind=r_def),    intent(in)    :: basis(ndf, ndf_chi)
   real(kind=r_def),    intent(inout) :: chi_1(undf_chi)
   real(kind=r_def),    intent(inout) :: chi_2(undf_chi)
@@ -788,6 +791,9 @@ contains
   !> @param[in]     surface_altitude Surface altitude field data
   !> @param[in]     domain_surface   Physical height of flat domain surface (m)
   !> @param[in]     domain_height    Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     ndf_chi          Num DoFs per cell for map_chi
   !> @param[in]     undf_chi         Column coords' num DoFs this partition
   !> @param[in]     map_chi          Indirection map for coordinate field
@@ -805,6 +811,8 @@ contains
                                            panel_id,                           &
                                            surface_altitude,                   &
                                            domain_surface, domain_height,      &
+                                           stretching_height,                  &
+                                           stretching_method,                  &
                                            ndf_chi, undf_chi,                  &
                                            map_chi,                            &
                                            ndf_pid, undf_pid,                  &
@@ -821,6 +829,8 @@ contains
   integer(kind=i_def), intent(in)    :: map(ndf)
   integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
   integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+  integer(kind=i_def), intent(in)    :: stretching_method
+  real(kind=r_def),    intent(in)    :: stretching_height
   real(kind=r_def),    intent(in)    :: basis(ndf, ndf_chi)
   real(kind=r_def),    intent(inout) :: chi_1(undf_chi)
   real(kind=r_def),    intent(inout) :: chi_2(undf_chi)
@@ -886,6 +896,9 @@ end subroutine ancil_orography_spherical_sph
   !> @param[in]     surface_altitude Surface altitude field data
   !> @param[in]     domain_surface   Physical height of flat domain surface (m)
   !> @param[in]     domain_height    Physical height of domain top (m)
+  !> @param[in]     stretching_height Physical height above which surface altitude does not
+  !!                                 influence layer height (m)
+  !> @param[in]     stretching_method Method of generating stretching
   !> @param[in]     ndf_chi          Num DoFs per cell for map_chi
   !> @param[in]     undf_chi         Column coords' num DoFs this partition
   !> @param[in]     map_chi          Indirection map for coordinate field
@@ -903,6 +916,8 @@ end subroutine ancil_orography_spherical_sph
                                        panel_id,                               &
                                        surface_altitude,                       &
                                        domain_surface, domain_height,          &
+                                       stretching_height,                      &
+                                       stretching_method,                      &
                                        ndf_chi, undf_chi,                      &
                                        map_chi,                                &
                                        ndf_pid, undf_pid,                      &
@@ -919,6 +934,8 @@ end subroutine ancil_orography_spherical_sph
   integer(kind=i_def), intent(in)    :: map(ndf)
   integer(kind=i_def), intent(in)    :: map_chi(ndf_chi)
   integer(kind=i_def), intent(in)    :: map_pid(ndf_pid)
+  integer(kind=i_def), intent(in)    :: stretching_method
+  real(kind=r_def),    intent(in)    :: stretching_height
   real(kind=r_def),    intent(in)    :: basis(ndf, ndf_chi)
   real(kind=r_def),    intent(inout) :: chi_1(undf_chi)
   real(kind=r_def),    intent(inout) :: chi_2(undf_chi)

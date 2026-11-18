@@ -8,6 +8,7 @@
 !>        wind field and a set of three scalar W3/Wtheta wind fields.
 module adj_interpolation_alg_mod
 
+  use config_mod, only: config_type
   use adj_convert_cart2sphere_vector_kernel_mod, &
                                                  only: adj_convert_cart2sphere_vector_kernel_type
   use adj_sci_extract_w_kernel_mod,              only: adj_extract_w_kernel_type
@@ -27,6 +28,10 @@ module adj_interpolation_alg_mod
   use sci_nodal_xyz_coordinates_kernel_mod,      only: nodal_xyz_coordinates_kernel_type
   use sci_compute_sample_u_ops_kernel_mod,       only: compute_sample_u_ops_kernel_type
 
+  ! Configuration modules
+  use finite_element_config_mod, only: coord_system
+  use planet_config_mod,         only: scaled_radius
+
   implicit none
 
   public :: adj_interp_w2_to_w3wth_alg
@@ -37,15 +42,19 @@ module adj_interpolation_alg_mod
   !=============================================================================
   !> @brief Adjoint of interpolation of a W2 wind field to two horizontal W3
   !>        fields and a vertical Wtheta field
+  !> @param[in]      config   Application configuration object
   !> @param[in, out] u_in_w2  W2 wind field to adjoint-interpolate to
   !> @param[in]      u_in_w3  Zonal component on W3 to adjoint-interpolate from
   !> @param[in]      v_in_w3  Meridional component on W3 to adjoint-interpolate
   !>                          from
   !> @param[in]      w_in_wth Vertical component on Wtheta to
   !>                          adjoint-interpolate from
-  subroutine adj_interp_w2_to_w3wth_alg(u_in_w2, u_in_w3, v_in_w3, w_in_wth)
+  subroutine adj_interp_w2_to_w3wth_alg(config, &
+                                        u_in_w2, u_in_w3, v_in_w3, w_in_wth)
 
     implicit none
+
+    type(config_type), intent(in) :: config
 
     type(field_type), intent(inout) :: u_in_w2
     type(field_type), intent(inout) :: u_in_w3
@@ -63,13 +72,20 @@ module adj_interpolation_alg_mod
     type(field_type)          :: physical_wind_w2(3)
     type(field_type)          :: physical_chi_w2(3)
 
+    integer(i_def) :: coord_system
+    real(r_def)    :: scaled_radius
+
     nullify(chi, panel_id, w2_rmultiplicity, mesh)
+
+    coord_system  = config%finite_element%coord_system()
+    scaled_radius = config%planet%scaled_radius()
 
     ! Get geometry data
     mesh => u_in_w2%get_mesh()
-    chi => get_coordinates(mesh%get_id())
-    panel_id => get_panel_id(mesh%get_id())
-    w2_rmultiplicity => get_rmultiplicity_fe( W2, mesh%get_id() )
+
+    chi      => get_coordinates(mesh)
+    panel_id => get_panel_id(mesh)
+    w2_rmultiplicity => get_rmultiplicity_fe(config, mesh, W2)
 
     ! Create intermediate fields
     do i = 1,3
@@ -80,8 +96,18 @@ module adj_interpolation_alg_mod
     end do
 
     ! Adjoint of compute vertical wind on Wtheta
-    call invoke( nodal_xyz_coordinates_kernel_type(physical_chi_w3, chi, panel_id), &
-                 nodal_xyz_coordinates_kernel_type(physical_chi_w2, chi, panel_id), &
+    call invoke( nodal_xyz_coordinates_kernel_type( physical_chi_w3, chi,   &
+                                                    panel_id,               &
+                                                    mesh%geometry(),        &
+                                                    mesh%topology(),        &
+                                                    coord_system,           &
+                                                    scaled_radius ),        &
+                 nodal_xyz_coordinates_kernel_type( physical_chi_w2, chi,   &
+                                                    panel_id,               &
+                                                    mesh%geometry(),        &
+                                                    mesh%topology(),        &
+                                                    coord_system,           &
+                                                    scaled_radius ),        &
                  setval_c(physical_wind_w2(1), 0.0_r_def), &
                  setval_c(physical_wind_w2(2), 0.0_r_def), &
                  setval_c(physical_wind_w2(3), 0.0_r_def), &
@@ -93,7 +119,10 @@ module adj_interpolation_alg_mod
     call invoke( inc_X_times_Y(physical_wind_w2(3), w2_rmultiplicity), &
                  inc_X_times_Y(physical_wind_w2(2), w2_rmultiplicity), &
                  inc_X_times_Y(physical_wind_w2(1), w2_rmultiplicity) )
-    call invoke_adj_convert_hdiv_field_kernel(physical_wind_w2, u_in_w2, chi, panel_id)
+    call invoke_adj_convert_hdiv_field_kernel(physical_wind_w2, u_in_w2, chi, &
+                                              panel_id, mesh%geometry(), &
+                                              mesh%topology(), coord_system, &
+                                              scaled_radius)
     call invoke( setval_c(physical_wind_w2(3), 0.0_r_def), &
                  setval_c(physical_wind_w2(2), 0.0_r_def), &
                  setval_c(physical_wind_w2(1), 0.0_r_def), &
@@ -104,24 +133,31 @@ module adj_interpolation_alg_mod
                  setval_c(v_in_w3, 0.0_r_def), &
                  setval_c(u_in_w3, 0.0_r_def) )
     call invoke( adj_convert_cart2sphere_vector_kernel_type(physical_wind_w3, physical_chi_w3) )
-    call invoke_adj_convert_hdiv_field_kernel(physical_wind_w3, u_in_w2, chi, panel_id)
+    call invoke_adj_convert_hdiv_field_kernel(physical_wind_w3, u_in_w2, chi, panel_id, &
+                                              mesh%geometry(), mesh% topology(), &
+                                              coord_system, scaled_radius)
 
   end subroutine adj_interp_w2_to_w3wth_alg
 
   !=============================================================================
   !> @brief Adjoint of interpolation of two horizontal W3 fields and a vertical Wtheta field to a W2 wind field
+  !> @param[in]      config   Application configuration object
   !> @param[in]      u_in_w2  W2 wind field to adjoint-interpolate from
   !> @param[in, out] u_in_w3  Zonal component on W3 to adjoint-interpolate to
   !> @param[in, out] v_in_w3  Meridional component on W3 to adjoint-interpolate to
   !> @param[in, out] w_in_wth Vertical component on Wtheta to adjoint-interpolate to
-  subroutine adj_interp_w3wth_to_w2_alg(u_in_w2, u_in_w3, v_in_w3, w_in_wth)
+
+  subroutine adj_interp_w3wth_to_w2_alg(config, &
+                                        u_in_w2, u_in_w3, v_in_w3, w_in_wth)
 
     implicit none
 
-    type(field_type), intent(inout) :: u_in_w2
-    type(field_type), intent(inout) :: u_in_w3
-    type(field_type), intent(inout) :: v_in_w3
-    type(field_type), intent(inout) :: w_in_wth
+    type(config_type), intent(in) :: config
+
+    type(field_type),    intent(inout) :: u_in_w2
+    type(field_type),    intent(inout) :: u_in_w3
+    type(field_type),    intent(inout) :: v_in_w3
+    type(field_type),    intent(inout) :: w_in_wth
 
     ! Local
     integer(kind=i_def)                :: element_order_h
@@ -138,12 +174,20 @@ module adj_interpolation_alg_mod
     type(operator_type)                :: v_map
     type(operator_type)                :: w_map
 
+    integer(i_def) :: coord_system
+    real(r_def)    :: scaled_radius
+
     nullify(w2b_fs, w3_fs, wtheta_fs, chi, mesh, w2_rmultiplicity)
+
+    coord_system  = config%finite_element%coord_system()
+    scaled_radius = config%planet%scaled_radius()
 
     ! Get geometry data
     mesh => u_in_w2%get_mesh()
-    chi => get_coordinates(mesh%get_id())
-    panel_id => get_panel_id(mesh%get_id())
+
+    chi      => get_coordinates(mesh)
+    panel_id => get_panel_id(mesh)
+
     w3_fs => u_in_w3%get_function_space()
     element_order_h = w3_fs%get_element_order_h()
     element_order_v = w3_fs%get_element_order_v()
@@ -151,7 +195,7 @@ module adj_interpolation_alg_mod
                                                element_order_v, W2broken)
     wtheta_fs => function_space_collection%get_fs(mesh, element_order_h, &
                                                   element_order_v, Wtheta)
-    w2_rmultiplicity => get_rmultiplicity_fe(W2, mesh%get_id())
+    w2_rmultiplicity => get_rmultiplicity_fe(config, mesh, W2)
 
     ! Set up intermediate fields
     call u_map%initialise(w2b_fs, w3_fs)
@@ -160,12 +204,16 @@ module adj_interpolation_alg_mod
     call u_broken%initialise(w2b_fs)
 
     ! Adjoint of compute wind on W2
-    call invoke( setval_c(u_broken, 0.0_r_def), &
-                 compute_sample_u_ops_kernel_type(u_map, v_map, w_map, chi, panel_id), &
-                 adj_average_w2b_to_w2_kernel_type(u_in_w2, u_broken, w2_rmultiplicity), &
+    call invoke( setval_c(u_broken, 0.0_r_def),                                   &
+                 compute_sample_u_ops_kernel_type(u_map, v_map, w_map, chi,       &
+                                                  panel_id, mesh%geometry(),      &
+                                                  mesh%topology(),                &
+                                                  coord_system, scaled_radius),   &
+                 adj_average_w2b_to_w2_kernel_type(u_in_w2, u_broken,             &
+                                                   w2_rmultiplicity),             &
                  adj_dg_inc_matrix_vector_kernel_type(u_broken, w_in_wth, w_map), &
-                 adj_dg_inc_matrix_vector_kernel_type(u_broken, v_in_w3, v_map), &
-                 adj_dg_matrix_vector_kernel_type(u_broken, u_in_w3, u_map), &
+                 adj_dg_inc_matrix_vector_kernel_type(u_broken, v_in_w3, v_map),  &
+                 adj_dg_matrix_vector_kernel_type(u_broken, u_in_w3, u_map),      &
                  setval_c(u_in_w2, 0.0_r_def) )
 
   end subroutine adj_interp_w3wth_to_w2_alg

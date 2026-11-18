@@ -12,6 +12,7 @@ module gw_init_fields_alg_mod
                                                LOG_LEVEL_INFO,    &
                                                LOG_LEVEL_TRACE,   &
                                                LOG_LEVEL_ERROR
+  use config_mod,                        only: config_type
   use constants_mod,                     only: r_def, i_def, &
                                                radians_to_degrees
 
@@ -49,30 +50,32 @@ module gw_init_fields_alg_mod
 contains
   !> @details An algorithm for initialising prognostic fields for
   !>          all solvers.
+  !> @param[in]  config       Application configuration object
   !> @param[inout] prognostics  The prognostic variables
   !>                            (wind buoyancy and pressure)
-  subroutine gw_init_fields_alg( wind, pressure, buoyancy )
+  subroutine gw_init_fields_alg(config, wind, pressure, buoyancy )
 
     implicit none
 
+    type(config_type), intent(in) :: config
+
     ! Prognostic fields
-    type( field_type ), intent(inout)           :: wind
-    type( field_type ), intent(inout)           :: pressure
-    type( field_type ), intent(inout)           :: buoyancy
+    type( field_type ), intent(inout) :: wind
+    type( field_type ), intent(inout) :: pressure
+    type( field_type ), intent(inout) :: buoyancy
 
     type( quadrature_xyoz_type )          :: qr
     type( quadrature_rule_gaussian_type ) :: quadrature_rule
     type( field_type )                    :: r_u
 
     ! Coordinate fields
-    type( field_type ), pointer :: chi(:)   => null()
-    type( field_type ), pointer :: panel_id => null()
-    type( mesh_type ),  pointer :: mesh     => null()
+    type( field_type ), pointer :: chi(:)
+    type( field_type ), pointer :: panel_id
+    type( mesh_type ),  pointer :: mesh
 
     type( domain_type ) :: domain
 
-    real(kind=r_def), parameter        :: initial_time = 0.0_r_def
-    integer(kind=i_def)                :: mesh_id
+    real(kind=r_def), parameter :: initial_time = 0.0_r_def
 
     real(kind=r_def) :: domain_max_x
     real(kind=r_def) :: domain_max_y
@@ -81,9 +84,8 @@ contains
     ! variables
 
     mesh     => wind%get_mesh()
-    mesh_id  =  mesh%get_id()
-    chi      => get_coordinates(mesh_id)
-    panel_id => get_panel_id(mesh_id)
+    chi      => get_coordinates(mesh)
+    panel_id => get_panel_id(mesh)
 
     domain = mesh%get_domain()
     qr     = quadrature_xyoz_type(element_order_h+3, element_order_h+3, &
@@ -111,15 +113,11 @@ contains
                  initial_u_kernel_type( r_u, chi, panel_id, initial_time, &
                                         domain_max_x, domain_max_y,       &
                                         qr ) )
-    call mass_matrix_solver_alg(wind, r_u)
+    call mass_matrix_solver_alg(config, wind, r_u)
 
     call log_event( 'gravity_wave: Initialised prognostic fields', LOG_LEVEL_INFO )
 
     !==========================================================================!
-
-    mesh     => null()
-    chi      => null()
-    panel_id => null()
 
   end subroutine gw_init_fields_alg
 

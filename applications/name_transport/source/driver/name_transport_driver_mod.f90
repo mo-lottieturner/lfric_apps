@@ -10,6 +10,7 @@ module name_transport_driver_mod
 
   use add_mesh_map_mod,                   only: assign_mesh_maps
   use check_configuration_mod,            only: get_required_stencil_depth
+  use config_mod,                         only: config_type
   use constants_mod,                      only: i_def, l_def, &
                                                 r_def, r_second, str_def
   use create_mesh_mod,                    only: create_mesh, create_extrusion
@@ -36,7 +37,9 @@ module name_transport_driver_mod
                                                 LOG_LEVEL_ERROR,   &
                                                 LOG_LEVEL_INFO,    &
                                                 LOG_LEVEL_TRACE
-  use mesh_mod,                           only: mesh_type
+  use mesh_mod,                           only: mesh_type,       &
+                                                geometry_planar, &
+                                                geometry_spherical
   use mesh_collection_mod,                only: mesh_collection
   use model_clock_mod,                    only: model_clock_type
   use runtime_constants_mod,              only: create_runtime_constants
@@ -55,9 +58,10 @@ module name_transport_driver_mod
                                                 name_transport_final
 
   ! Configuration modules
-  use base_mesh_config_mod,               only: GEOMETRY_PLANAR, &
-                                                GEOMETRY_SPHERICAL
-  use name_options_config_mod,            only: transport_density
+  use finite_element_config_mod, only: coord_system,    &
+                                       element_order_h, &
+                                       element_order_v
+  use name_options_config_mod,   only: transport_density
 
   implicit none
 
@@ -110,10 +114,13 @@ contains
     character(len=str_def)              :: prime_mesh_name
     integer(kind=i_def),    allocatable :: stencil_depths(:)
 
+    integer(i_def), allocatable :: tile_size(:,:)
+
     logical(kind=l_def) :: prepartitioned
-    logical(kind=l_def) :: apply_partition_check
+    logical(kind=l_def) :: check_partitions
 
     integer(kind=i_def) :: geometry
+    integer(kind=i_def) :: topology
     real(kind=r_def)    :: domain_bottom
     real(kind=r_def)    :: domain_height
     real(kind=r_def)    :: scaled_radius
@@ -123,6 +130,10 @@ contains
     logical(kind=l_def) :: write_diag
     logical(kind=l_def) :: use_xios_io
 
+    logical(l_def) :: inner_halo_tiles
+    integer(i_def) :: tile_size_x
+    integer(i_def) :: tile_size_y
+
     integer(i_def) :: i
     integer(i_def), parameter :: one_layer = 1_i_def
 
@@ -131,6 +142,7 @@ contains
     !=======================================================================
     prime_mesh_name    = modeldb%config%base_mesh%prime_mesh_name()
     geometry           = modeldb%config%base_mesh%geometry()
+    topology           = modeldb%config%base_mesh%topology()
     prepartitioned     = modeldb%config%base_mesh%prepartitioned()
     method             = modeldb%config%extrusion%method()
     domain_height      = modeldb%config%extrusion%domain_height()
@@ -139,6 +151,16 @@ contains
     nodal_output_on_w3 = modeldb%config%io%nodal_output_on_w3()
     write_diag         = modeldb%config%io%write_diag()
     use_xios_io        = modeldb%config%io%use_xios_io()
+
+    if (prepartitioned) then
+      inner_halo_tiles = .false.
+      tile_size_x = 1
+      tile_size_y = 1
+    else
+      inner_halo_tiles = modeldb%config%partitioning%inner_halo_tiles()
+      tile_size_x = maxval([1,modeldb%config%partitioning%tile_size_x()])
+      tile_size_y = maxval([1,modeldb%config%partitioning%tile_size_y()])
+    end if
 
     !-----------------------------------------------------------------------
     ! Initialise infrastructure
@@ -225,16 +247,21 @@ contains
                                      base_mesh_names, &
                                      modeldb%config )
 
-    apply_partition_check = .false.
+    if (allocated(tile_size)) deallocate(tile_size)
+    allocate(tile_size(2, size(base_mesh_names)))
+    tile_size(1,:) = tile_size_x
+    tile_size(2,:) = tile_size_y
 
+    check_partitions = .false.
     call init_mesh( modeldb%config,              &
                     modeldb%mpi%get_comm_rank(), &
                     modeldb%mpi%get_comm_size(), &
-                    base_mesh_names,             &
-                    extrusion, stencil_depths,   &
-                    apply_partition_check )
+                    base_mesh_names, extrusion,  &
+                    inner_halo_tiles, tile_size, &
+                    stencil_depths, check_partitions )
 
     call create_mesh( base_mesh_names, extrusion_2d, &
+                      inner_halo_tiles, tile_size,   &
                       alt_name=twod_names )
     call assign_mesh_maps(twod_names)
 
@@ -247,8 +274,16 @@ contains
         do i=1, size(shifted_names)
           shifted_names(i) = trim(shifted_names(i))//'_shifted'
         end do
+
+        if (allocated(tile_size)) deallocate(tile_size)
+        allocate(tile_size(2, size(meshes_to_shift)))
+        tile_size(1,:) = tile_size_x
+        tile_size(2,:) = tile_size_y
+
         call create_mesh( meshes_to_shift,   &
                           extrusion_shifted, &
+                          inner_halo_tiles,  &
+                          tile_size,         &
                           alt_name=shifted_names )
         call assign_mesh_maps(shifted_names)
 
@@ -264,8 +299,16 @@ contains
         do i=1, size(double_names)
           double_names(i) = trim(double_names(i))//'_double'
         end do
+
+        if (allocated(tile_size)) deallocate(tile_size)
+        allocate(tile_size(2, size(meshes_to_shift)))
+        tile_size(1,:) = tile_size_x
+        tile_size(2,:) = tile_size_y
+
         call create_mesh( meshes_to_double, &
                           extrusion_double, &
+                          inner_halo_tiles, &
+                          tile_size,        &
                           alt_name=double_names )
         call assign_mesh_maps(double_names)
 
@@ -280,7 +323,7 @@ contains
     chi_inventory => get_chi_inventory()
     panel_id_inventory => get_panel_id_inventory()
 
-    call init_fem( mesh_collection, chi_inventory, panel_id_inventory )
+    call init_fem( modeldb%config, chi_inventory, panel_id_inventory )
 
     call create_runtime_constants()
 
@@ -292,7 +335,7 @@ contains
     call name_transport_prerun_setup( num_base_meshes )
 
     ! Initialise prognostic variables
-    call name_transport_init_fields_alg( mesh, wind, density, tracer_con )
+    call name_transport_init_fields_alg( modeldb%config, mesh, wind, density, tracer_con )
 
     ! Initialise all transport-only control algorithm
     call name_transport_init( density, tracer_con )
@@ -306,7 +349,8 @@ contains
                   prime_mesh_name,    &
                   modeldb,            &
                   chi_inventory,      &
-                  panel_id_inventory )
+                  panel_id_inventory, &
+                  geometry, topology )
 
     ! Call clock initial step before initial conditions output
     ! This ensures that lfric_initial.nc will be written out
@@ -322,19 +366,23 @@ contains
     ! Output initial conditions
     if (modeldb%clock%is_initialisation() .and. write_diag) then
 
-      call write_vector_diagnostic( 'u', wind, modeldb%clock, &
-                                    mesh, nodal_output_on_w3 )
-      call write_scalar_diagnostic( 'rho', density, modeldb%clock, &
-                                    mesh, nodal_output_on_w3 )
-      call write_scalar_diagnostic( 'tracer_con', tracer_con, modeldb%clock, &
-                                    mesh, nodal_output_on_w3 )
+      call write_vector_diagnostic( modeldb%config, mesh, 'u', wind, &
+                                    modeldb%clock, nodal_output_on_w3 )
+      call write_scalar_diagnostic( modeldb%config, mesh, 'rho', density, &
+                                    modeldb%clock, nodal_output_on_w3 )
+      call write_scalar_diagnostic( modeldb%config, mesh, 'tracer_con', &
+                                    tracer_con, modeldb%clock,  &
+                                    nodal_output_on_w3 )
 
-      height_w3 => get_height_fe(W3, mesh%get_id())
-      height_wth => get_height_fe(Wtheta, mesh%get_id())
-      call write_scalar_diagnostic( 'height_w3', height_w3, modeldb%clock, &
-                                    mesh, nodal_output_on_w3 )
-      call write_scalar_diagnostic( 'height_wth', height_wth, modeldb%clock, &
-                                    mesh, nodal_output_on_w3 )
+      height_w3  => get_height_fe(modeldb%config, mesh, W3)
+      height_wth => get_height_fe(modeldb%config, mesh, Wtheta)
+
+      call write_scalar_diagnostic( modeldb%config, mesh, 'height_w3', &
+                                    height_w3, modeldb%clock, &
+                                    nodal_output_on_w3 )
+      call write_scalar_diagnostic( modeldb%config, mesh, 'height_wth', &
+                                    height_wth, modeldb%clock, &
+                                    nodal_output_on_w3 )
 
     end if
 
@@ -358,7 +406,7 @@ contains
   !============================================================================
   !> @brief Performs a time step of the name_transport app.
   !>
-  subroutine step_name_transport( model_clock )
+  subroutine step_name_transport( config, model_clock )
 
     use base_mesh_config_mod,     only: prime_mesh_name
     use io_config_mod,            only: diagnostic_frequency, &
@@ -368,6 +416,7 @@ contains
 
     implicit none
 
+    type(config_type),       intent(in) :: config
     class(model_clock_type), intent(in) :: model_clock
 
     type(mesh_type), pointer :: mesh
@@ -391,7 +440,7 @@ contains
     if ( LPROF ) call start_timing( id, 'name_transport_step' )
 
     ! Transport field
-    call name_transport_step( model_clock, wind, tracer_con, &
+    call name_transport_step( config, model_clock, wind, tracer_con, &
                               density, transport_density )
 
     if ( LPROF ) call stop_timing( id, 'name_transport_step' )
@@ -411,13 +460,14 @@ contains
     ! Output wind, density and tracer values
     if ( (mod( model_clock%get_step(), diagnostic_frequency ) == 0) &
          .and. write_diag ) then
-      call write_vector_diagnostic( 'u', wind, model_clock, &
-                                    mesh, nodal_output_on_w3 )
-      call write_scalar_diagnostic( 'tracer_con', tracer_con, model_clock, &
-                                    mesh, nodal_output_on_w3 )
+      call write_vector_diagnostic( config, mesh, 'u', wind, &
+                                    model_clock, nodal_output_on_w3 )
+      call write_scalar_diagnostic( config, mesh, 'tracer_con', &
+                                    tracer_con, model_clock, &
+                                    nodal_output_on_w3 )
       if (transport_density) then
-        call write_scalar_diagnostic( 'rho', density, model_clock, &
-                                      mesh, nodal_output_on_w3 )
+        call write_scalar_diagnostic( config, mesh, 'rho', density, &
+                                      model_clock, nodal_output_on_w3 )
       end if
     end if
 
@@ -435,7 +485,8 @@ contains
     character(*),        intent(in)    :: program_name
     class(modeldb_type), intent(inout) :: modeldb
 
-    call name_transport_final( density, tracer_con, transport_density )
+    call name_transport_final( modeldb%config, density, &
+                               tracer_con, transport_density )
 
     !--------------------------------------------------------------------------
     ! Model finalise

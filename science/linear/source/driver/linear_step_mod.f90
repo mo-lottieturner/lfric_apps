@@ -124,7 +124,7 @@ module linear_step_mod
     call ls_fields%get_field('ls_u', ls_u)
     call ls_fields%get_field('ls_rho', ls_rho)
     call ls_fields%get_field('ls_exner', ls_exner)
-    dA => get_da_at_w2( mesh%get_id() )
+    dA => get_da_at_w2(modeldb%config, mesh)
 
     select case( method )
       case( method_semi_implicit )  ! Semi-Implicit
@@ -135,24 +135,29 @@ module linear_step_mod
                                        derived_fields,                &
                                        mesh, twod_mesh )
       case( method_rk )             ! RK
-        call tl_rk_alg_step(u, rho, theta, moist_dyn, exner, mr,  &
-                            ls_u, ls_rho, ls_theta,               &
+        call tl_rk_alg_step(modeldb%config,                      &
+                            u, rho, theta, moist_dyn, exner, mr, &
+                            ls_u, ls_rho, ls_theta,              &
                             ls_moist_dyn, ls_exner, ls_mr, model_clock)
     end select
 
     if ( write_conservation_diag ) then
-      call conservation_algorithm( rho,              &
-                                   u,                &
-                                   theta,            &
-                                   mr,               &
+      call conservation_algorithm( modeldb%config, &
+                                   rho,            &
+                                   u,              &
+                                   theta,          &
+                                   mr,             &
                                    exner )
       if ( moisture_formulation /= moisture_formulation_dry ) then
-        call moisture_conservation_alg( rho,              &
-                                        mr,               &
+        call moisture_conservation_alg( modeldb%config, &
+                                        rho,            &
+                                        mr,             &
                                         'After timestep' )
       end if
 
-      if (write_minmax_tseries) call minmax_tseries(u, 'u', mesh)
+      if (write_minmax_tseries) then
+        call minmax_tseries(modeldb%config, mesh, u, 'u')
+      end if
 
       call log_field_minmax( LOG_LEVEL_INFO, 'u', u )
       call log_field_minmax( LOG_LEVEL_INFO, 'theta', theta )

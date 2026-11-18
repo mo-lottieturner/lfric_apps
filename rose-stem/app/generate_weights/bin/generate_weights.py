@@ -113,8 +113,10 @@ class INTER:
 def run_exe(arg, outfile, style):
     '''Run ESMF regrid'''
     model = ' ESMF_RegridWeightGen ' + arg + ' -w ' + outfile
-    nproc = os.environ.get('MPIRUN_N_JOBS')
-    cmd = 'mpirun -n ' + nproc + model
+    # Temporarily run without mpiexec due to environment issues
+    # nproc = os.environ.get('MPIRUN_N_JOBS')
+    # cmd = 'mpirun -n ' + nproc + model
+    cmd = model
     print(cmd)
     retcode = subprocess.call(cmd, shell=True)
     if retcode != 0:
@@ -140,7 +142,7 @@ def run_exe(arg, outfile, style):
         if retcode != 0:
             print("Execution terminated by the signal", retcode)
             sys.exit(1)
-        cmd = 'ncap2 -h -s "remap_matrix[num_links,num_wgts]=S" ' + outfile
+        cmd = 'ncap2 -A -h -s "remap_matrix[num_links,num_wgts]=S" ' + outfile
         print(cmd)
         retcode = subprocess.call(cmd, shell=True)
         if retcode != 0:

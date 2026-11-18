@@ -7,7 +7,9 @@
 
 module transport_control_alg_mod
 
-  use constants_mod,                     only: i_def, r_def, l_def, str_def, r_tran
+  use config_mod,                        only: config_type
+  use constants_mod,                     only: i_def, r_def, l_def, &
+                                               str_def, r_tran
   use extrusion_mod,                     only: SHIFTED
   use field_mod,                         only: field_type
   use flux_precomputations_alg_mod,      only: flux_precomputations_type
@@ -103,7 +105,7 @@ contains
     implicit none
 
     integer(kind=i_def), intent(in) :: number_of_meshes
-    integer(kind=i_def)             :: config
+    integer(kind=i_def)             :: i
     type(transport_metadata_type)   :: transport_metadata
 
     ! ------------------------------------------------------------------------ !
@@ -139,37 +141,37 @@ contains
     use_w2_vector = .false.
 
     ! Set up configs using namelist entries
-    do config = 1, profile_size
+    do i=1, profile_size
 
-      write(log_scratch_space,'(3A)') 'Setting up ',trim(field_names(config)),' transport metadata'
+      write(log_scratch_space,'(3A)') 'Setting up ',trim(field_names(i)),' transport metadata'
       call log_event(log_scratch_space, LOG_LEVEL_INFO)
 
-      transport_metadata = transport_metadata_type( field_names(config),             &
-                                                    equation_form(config),           &
-                                                    splitting(config),               &
-                                                    scheme(config),                  &
-                                                    horizontal_method(config),       &
-                                                    vertical_method(config),         &
-                                                    horizontal_monotone(config),     &
-                                                    vertical_monotone(config),       &
-                                                    vertical_monotone_order(config), &
-                                                    special_edges_monotone(config),  &
-                                                    enforce_min_value(config),       &
-                                                    min_value(config),               &
-                                                    log_space(config),               &
-                                                    reversible(config),              &
-                                                    ffsl_splitting(config),          &
-                                                    ffsl_vertical_order(config) )
+      transport_metadata = transport_metadata_type( field_names(i),             &
+                                                    equation_form(i),           &
+                                                    splitting(i),               &
+                                                    scheme(i),                  &
+                                                    horizontal_method(i),       &
+                                                    vertical_method(i),         &
+                                                    horizontal_monotone(i),     &
+                                                    vertical_monotone(i),       &
+                                                    vertical_monotone_order(i), &
+                                                    special_edges_monotone(i),  &
+                                                    enforce_min_value(i),       &
+                                                    min_value(i),               &
+                                                    log_space(i),               &
+                                                    reversible(i),              &
+                                                    ffsl_splitting(i),          &
+                                                    ffsl_vertical_order(i) )
 
       call transport_metadata_collection%set_transport_metadata(transport_metadata)
 
-      if (trim(field_names(config)) == 'w2_vector') then
+      if (trim(field_names(i)) == 'w2_vector') then
         use_w2_vector = .true.
       end if
-      if (trim(field_names(config)) == 'w3_aerosol') then
+      if (trim(field_names(i)) == 'w3_aerosol') then
         use_w3_aerosol = .true.
       end if
-      if (trim(field_names(config)) == 'wt_aerosol') then
+      if (trim(field_names(i)) == 'wt_aerosol') then
         use_wt_aerosol = .true.
       end if
 
@@ -196,7 +198,8 @@ contains
   !> @param[in] w2_vector   Vector-valued field replicating wind transport (in W2)
   !> @param[in] w3_aerosol  Tracer in W3 on coarse mesh
   !> @param[in] wt_aerosol  Tracer in Wtheta on coarse mesh
-  subroutine transport_init( rho, theta, tracer_con, tracer_adv, constant, mr, &
+  subroutine transport_init( rho, theta, tracer_con,   &
+                             tracer_adv, constant, mr, &
                              w2_vector, w3_aerosol, wt_aerosol )
 
     implicit none
@@ -236,6 +239,7 @@ contains
   !!          transporting rho, theta, tracer and moisture mixing ratios. The
   !!          transporting wind field is prescribed, but may be updated if a
   !!          time-varying profile has been specified.
+  !> @param[in]     config             Application namelist configuration object
   !> @param[in]     model_clock        Time within the model
   !> @param[in,out] wind               The transporting wind field
   !> @param[in,out] rho                Dry density field to transport
@@ -249,13 +253,14 @@ contains
   !> @param[in,out] wt_aerosol         Tracer in Wtheta on coarse mesh to transport advectively
   !> @param[in,out] aerosol_wind       Transporting wind field on the coarse mesh
   !> @param[in]     nummr_to_transport Number of moisture species to transport
-  subroutine transport_step( model_clock, wind,        &
-                             rho, theta, tracer_con,   &
-                             tracer_adv, constant, mr, &
-                             w2_vector, w3_aerosol,    &
-                             wt_aerosol, aerosol_wind, &
+  subroutine transport_step( config, model_clock, wind, &
+                             rho, theta, tracer_con,    &
+                             tracer_adv, constant, mr,  &
+                             w2_vector, w3_aerosol,     &
+                             wt_aerosol, aerosol_wind,  &
                              nummr_to_transport )
 
+    use dycore_constants_mod,             only: stepper_rk
     use sci_field_bundle_builtins_mod,    only: clone_bundle, copy_bundle
     use formulation_config_mod,           only: use_multires_coupling
     use init_gungho_prognostics_alg_mod,  only: init_u_field
@@ -274,6 +279,7 @@ contains
     implicit none
 
     ! Arguments
+    type(config_type),       intent(in)    :: config
     class(model_clock_type), intent(in)    :: model_clock
     type(field_type),        intent(inout) :: wind, rho, theta, w2_vector
     type(field_type),        intent(inout) :: tracer_con, tracer_adv, constant
@@ -307,7 +313,7 @@ contains
     cast_dt = real(model_clock%get_seconds_per_step(), r_def)
     if ( time_varying_wind ) then
       current_time = model_clock%get_step() * cast_dt
-      call init_u_field(wind, current_time)
+      call init_u_field(config, wind, current_time)
       call map_w2_intermesh( aerosol_wind, wind )
     end if
 
@@ -317,14 +323,15 @@ contains
     ! Set reference density for aerosol transport
     aerosol_w3_fs => function_space_collection%get_fs(aerosol_mesh, 0, 0, W3)
     call aerosol_reference_rho%initialise( aerosol_w3_fs )
-    call map_rho_intermesh(aerosol_reference_rho, rho)
+    call map_rho_intermesh(config, aerosol_reference_rho, rho)
 
     ! Initialise the main transport controller ---------------------------------
     call transport_controller%initialise(                                      &
-            model_clock, rho, wind                                             &
+            config, model_clock, stepper_rk, rho, wind                         &
     )
     call aerosol_transport_controller%initialise(                              &
-            model_clock, aerosol_reference_rho, aerosol_wind                   &
+            config, model_clock, stepper_rk,                                   &
+            aerosol_reference_rho, aerosol_wind                                &
     )
 
     ! Transport dry density
@@ -400,7 +407,7 @@ contains
       )
       ! Convert rhs_u residual back into increment
       call invoke( setval_c(w2_vector_inc, 0.0_r_def) )
-      call mass_matrix_solver_alg(w2_vector_inc, rhs_w2)
+      call mass_matrix_solver_alg(config, w2_vector_inc, rhs_w2)
       call invoke( X_plus_Y(w2_vector, w2_vector_n, w2_vector_inc) )
     end if
 
@@ -446,6 +453,7 @@ contains
   !> @brief Finalises transport only run.
   !> @details Calculates final error norms for transport schemes and calls
   !!          finalising routines for transport only run.
+  !> @param[in] config      Application configuration object
   !> @param[in] rho         Transported dry density field
   !> @param[in] theta       Transported pot. temperature field
   !> @param[in] tracer_con  Transported conservative tracer field
@@ -455,13 +463,15 @@ contains
   !> @param[in] w2_vector   Transported vector-valued field in W2
   !> @param[in] w3_aerosol  Transported tracer in W3 on coarse mesh
   !> @param[in] wt_aerosol  Transported tracer in Wtheta on coarse mesh
-  subroutine transport_final( rho, theta, tracer_con, tracer_adv, &
+  subroutine transport_final( config, rho, theta, tracer_con, tracer_adv, &
                               constant, mr, w2_vector, w3_aerosol, wt_aerosol )
 
     use transport_stats_mod,          only: write_transport_stats
     use split_transport_utils_mod,    only: finalise_split_transport_utils
 
     implicit none
+
+    type(config_type), intent(in) :: config
 
     ! Prognostic fields
     type(field_type), intent(in) :: rho, theta, tracer_con, tracer_adv
@@ -473,29 +483,29 @@ contains
 
     ! Calculate and write out statistics
     field_name = 'rho'
-    call write_transport_stats(rho, rho0, field_name)
+    call write_transport_stats(config, rho, rho0, field_name)
     field_name = 'theta'
-    call write_transport_stats(theta, theta0, field_name)
+    call write_transport_stats(config, theta, theta0, field_name)
     field_name = 'tracer_con'
-    call write_transport_stats(tracer_con, tracer_con0, field_name)
+    call write_transport_stats(config, tracer_con, tracer_con0, field_name)
     field_name = 'tracer_adv'
-    call write_transport_stats(tracer_adv, tracer_adv0, field_name)
+    call write_transport_stats(config, tracer_adv, tracer_adv0, field_name)
     field_name = 'constant'
-    call write_transport_stats(constant, constant0, field_name)
+    call write_transport_stats(config, constant, constant0, field_name)
     field_name = 'mr'
-    call write_transport_stats(mr(1), mr0(1), field_name)
+    call write_transport_stats(config, mr(1), mr0(1), field_name)
     ! NB: transport tests aren't designed to give meaningful answers for vector
     if (use_w2_vector) then
       field_name = 'w2_vector'
-      call write_transport_stats(w2_vector, w2_vector0, field_name)
+      call write_transport_stats(config, w2_vector, w2_vector0, field_name)
     end if
     if (use_w3_aerosol) then
       field_name = 'w3_aerosol'
-      call write_transport_stats(w3_aerosol, w3_aerosol0, field_name)
+      call write_transport_stats(config, w3_aerosol, w3_aerosol0, field_name)
     end if
     if (use_wt_aerosol) then
       field_name = 'wt_aerosol'
-      call write_transport_stats(wt_aerosol, wt_aerosol0, field_name)
+      call write_transport_stats(config, wt_aerosol, wt_aerosol0, field_name)
     end if
 
     call finalise_split_transport_utils()

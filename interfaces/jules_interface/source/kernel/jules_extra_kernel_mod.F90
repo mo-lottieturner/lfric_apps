@@ -32,7 +32,7 @@ module jules_extra_kernel_mod
   !>
   type, public, extends(kernel_type) :: jules_extra_kernel_type
     private
-    type(arg_type) :: meta_args(58) = (/                                       &
+    type(arg_type) :: meta_args(59) = (/                                       &
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! ls_rain
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! conv_rain
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! ls_snow
@@ -62,6 +62,7 @@ module jules_extra_kernel_mod
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! net_prim_prod
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_2), & ! snowice_sublimation
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_2), & ! surf_heat_flux
+         arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! inland_basin_flow
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_2), & ! canopy_evap
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_4), & ! water_extraction
          arg_type(GH_FIELD, GH_REAL, GH_READ,      ANY_DISCONTINUOUS_SPACE_1), & ! thermal_cond_wet_soil
@@ -137,6 +138,7 @@ contains
   !> @param[in]     net_prim_prod          Net Primary Productivity (kg m-2 s-1)
   !> @param[in]     snowice_sublimation    Sublimation of snow and ice (kg m-2 s-1)
   !> @param[in]     surf_heat_flux         Surface heat flux (W m-2)
+  !> @param[in]     inland_basin_flow      Inland flow of water from rivers to soil (kg m-2 s-1)
   !> @param[in]     canopy_evap            Canopy evaporation from land tiles (kg m-2 s-1)
   !> @param[in]     water_extraction       Extraction of water from each soil layer (kg m-2 s-1)
   !> @param[in]     thermal_cond_wet_soil  Thermal conductivity of soil (W m-1 K-1)
@@ -212,6 +214,7 @@ contains
                net_prim_prod,              &
                snowice_sublimation,        &
                surf_heat_flux,             &
+               inland_basin_flow,          &
                canopy_evap,                &
                water_extraction,           &
                thermal_cond_wet_soil,      &
@@ -297,7 +300,7 @@ contains
                                         l_water_industry, l_water_irrigation,  &
                                         l_water_livestock, l_water_resources,  &
                                         l_water_transfers, n_sw_source,        &
-                                        nwater_use
+                                        nwater_use, sw_river_source
     use jules_water_tracers_mod,  only: l_wtrac_jls, n_wtrac_jls, n_evap_srce
 
     use crop_vars_mod,            only: crop_vars_type, crop_vars_data_type,   &
@@ -348,7 +351,8 @@ contains
                                         fluxes_nullify, fluxes_dealloc
     use jules_rivers_mod,         only: rivers_type, rivers_data_type,         &
                                         rivers_assoc, jules_rivers_alloc,      &
-                                        rivers_nullify, rivers_dealloc
+                                        rivers_nullify, rivers_dealloc,        &
+                                        l_reservoirs, l_minor_reservoirs
     use cable_fields_mod,         only: work_vars_cbl
     use jules_chemvars_mod,       only: chemvars_type, chemvars_data_type,     &
                                         chemvars_alloc, chemvars_assoc,        &
@@ -421,6 +425,7 @@ contains
     real(kind=r_def), intent(in)    :: net_prim_prod(undf_2d)
     real(kind=r_def), intent(in)    :: thermal_cond_wet_soil(undf_2d)
     real(kind=r_def), intent(in)    :: urbztm(undf_2d)
+    real(kind=r_def), intent(in)    :: inland_basin_flow(undf_2d)
 
     real(kind=r_def), intent(inout) :: canopy_water(undf_tile)
     real(kind=r_def), intent(inout) :: tile_snow_mass(undf_tile)
@@ -552,12 +557,18 @@ contains
     ! Variables for dry deposition
     type(chemvars_type) :: chemvars
     type(chemvars_data_type) :: chemvars_data
+    integer(i_um) :: ndry_dep_species  ! Dummy variable for now
+
     type(water_resources_type) :: water_resources
     type(water_resources_data_type) :: water_resources_data
+    ! Water resources is not currently available.
+    ! Set sensible default values for arguments.
+    integer(i_um), parameter :: global_land_pts = 1
+    logical, parameter :: l_is_master_task = .FALSE.
+
     type(jls_wtrac_type)       :: wtrac_jls
     type(jls_wtrac_data_type)  :: wtrac_jls_data
     type( coastal_type ) :: coast
-    integer(i_um) :: ndry_dep_species  ! Dummy variable for now
 
     !-----------------------------------------------------------------------
     ! Initialisation of JULES data and pointer types
@@ -667,8 +678,11 @@ contains
                         l_deposition, ndry_dep_species, chemvars_data)
     call chemvars_assoc(chemvars, chemvars_data)
 
-    call water_resources_alloc(land_pts, n_sw_source, nwater_use,             &
-                               l_have_groundwater, l_have_surface_water,      &
+    call water_resources_alloc(global_land_pts, land_pts, n_sw_source,        &
+                               nwater_use, sw_river_source,                   &
+                               l_have_groundwater,                            &
+                               l_have_surface_water, l_is_master_task,        &
+                               l_reservoirs, l_minor_reservoirs,              &
                                l_water_domestic, l_water_industry,            &
                                l_water_irrigation, l_water_livestock,         &
                                l_water_resources, l_water_transfers,          &
@@ -902,6 +916,7 @@ contains
     allocate(fsat_soilt(land_pts, nsoilt))
     allocate(zw_soilt(land_pts, nsoilt))
     allocate(sthzw_soilt(land_pts, nsoilt))
+    allocate(inlandout_atm_gb(land_pts))
     do l = 1, land_pts
       ! Soil saturated fraction
       fsat_soilt(l,1) = real(soil_sat_frac(map_2d(1,ainfo%land_index(l))), r_um)
@@ -909,6 +924,8 @@ contains
       zw_soilt(l,1) = real(water_table(map_2d(1,ainfo%land_index(l))), r_um)
       ! Soil wetness below soil column
       sthzw_soilt(l,1) = real(wetness_under_soil(map_2d(1,ainfo%land_index(l))), r_um)
+      ! Inland basin flow
+      inlandout_atm_gb(l) = real(inland_basin_flow(map_2d(1,ainfo%land_index(l))), r_um)
     end do
 
   !----------------------------------------------------------------------------
@@ -929,7 +946,6 @@ contains
     allocate(dhf_surf_minus_soil(land_pts))
     allocate(tot_surf_runoff(land_pts))
     allocate(tot_sub_runoff(land_pts))
-    allocate(inlandout_atm_gb(land_pts))
 
     call surf_couple_extra(                                                   &
     !Driving data and associated INTENT(IN)
@@ -1013,7 +1029,7 @@ contains
     do n = 1, nsurft
       do j = 1, nsmax
         do l = 1, land_pts
-          i_snow = nsmax*(n-1) + j - 1 
+          i_snow = nsmax*(n-1) + j - 1
           ! Thickness of snow layers
           snow_layer_thickness(map_snow(1,ainfo%land_index(l))+i_snow) = real(progs%ds_surft(l,n,j), r_def)
           ! Mass of ice in snow layers
@@ -1049,8 +1065,10 @@ contains
       ! Wetness below soil column
       wetness_under_soil(map_2d(1,ainfo%land_index(l))) = real(sthzw_soilt(l,1), r_def)
       ! River runoffs
-      surface_runoff(map_2d(1,ainfo%land_index(l))) = real(fluxes%surf_roff_gb(l), r_def)
-      sub_surface_runoff(map_2d(1,ainfo%land_index(l))) = real(fluxes%sub_surf_roff_gb(l), r_def)
+      surface_runoff(map_2d(1,ainfo%land_index(l))) = real(fluxes%surf_roff_gb(l), r_def) *           &
+                                                                        flandg(ainfo%land_index(l), 1)
+      sub_surface_runoff(map_2d(1,ainfo%land_index(l))) = real(fluxes%sub_surf_roff_gb(l), r_def) *   &
+                                                                        flandg(ainfo%land_index(l), 1)
     end do
 
     if (.not. associated(soil_moisture_content, empty_real_data) ) then

@@ -3,7 +3,7 @@ import sys
 
 from metomi.rose.upgrade import MacroUpgrade  # noqa: F401
 
-from .version30_31 import *
+from .version31_32 import *
 
 
 class UpgradeError(Exception):
@@ -31,15 +31,16 @@ class vnXX_txxx(MacroUpgrade):
 """
 
 
-class vn31_t243(MacroUpgrade):
-    """Upgrade macro for ticket #243 by Mike Whitall."""
+class vn32_t709(MacroUpgrade):
+    """Upgrade macro for ticket #709 by Ian Boutle."""
 
-    BEFORE_TAG = "vn3.1"
-    AFTER_TAG = "vn3.1_t243"
+    BEFORE_TAG = "vn3.2"
+    AFTER_TAG = "vn3.2_t709"
 
     def upgrade(self, config, meta_config=None):
         # Commands From: rose-meta/um-microphysics
-        nml = "namelist:microphysics"
-        self.add_setting(config, [nml, "l_improve_precfrac_checks"], ".false.")
+        self.add_setting(
+            config, ["namelist:microphysics", "casim_activation"], "'fixed'"
+        )
 
         return config, self.reports

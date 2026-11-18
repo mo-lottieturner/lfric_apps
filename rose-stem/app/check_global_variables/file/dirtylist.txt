@@ -145,6 +145,11 @@ science/physics_schemes/source/convection/comorph/control/comorph_constants_mod.
 science/physics_schemes/source/convection/comorph/control/fields_type_mod.F90
 science/physics_schemes/source/convection/comorph/control/cloudfracs_type_mod.F90
 science/physics_schemes/source/convection/comorph/control/fields_2d_mod.F90
+science/physics_schemes/source/convection/comorph/control/parcel_type_mod.F90
+science/physics_schemes/source/convection/comorph/control/res_source_type_mod.F90
+science/physics_schemes/source/convection/comorph/plume_model/sublevs_mod.F90
+science/physics_schemes/source/convection/comorph/interface/standalone/qsat_data.F90
+science/physics_schemes/source/convection/comorph/interface/um/comorph_diags_scm_mod.F90
 science/physics_schemes/source/convection/cv_dependent_switch_mod.F90
 science/physics_schemes/source/convection/cv_run_mod.F90
 science/physics_schemes/source/convection/wtrac_conv.F90
@@ -160,4 +165,8 @@ science/physics_schemes/source/diffusion_and_filtering/leonard_incs_mod.F90
 science/physics_schemes/source/diffusion_and_filtering/turb_diff_mod.F90
 science/physics_schemes/source/gravity_wave_drag/gw_ussp_prec_mod.F90
 science/physics_schemes/source/gravity_wave_drag/g_wave_input_mod.F90
+science/physics_schemes/source/boundary_layer/mym_ctl.F90
+science/physics_schemes/source/boundary_layer/ddf_ctl.F90
+science/physics_schemes/source/boundary_layer/mym_const_mod.F90
+science/physics_schemes/source/boundary_layer/mym_option_mod.F90
 

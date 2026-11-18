@@ -3,6 +3,9 @@
 ! The file LICENCE, distributed with this code, contains details of the terms
 ! under which the code may be used.
 !----------------------------------------------------------------------------
+! Some content in this file was generated or refactored with assistance from
+! - Met Office Claude Code via AI Foundry (Opus 5); #709
+!----------------------------------------------------------------------------
 !> @brief Controls the setting of variables for UM physics schemes, which
 !>         are either fixed in LFRic or derived from LFRic inputs
 
@@ -29,7 +32,35 @@ module um_physics_init_mod
                                         horiz_d_in => horiz_d,                 &
                                         us_am_in => us_am
 
-  use blayer_config_mod,         only : a_ent_shr, a_ent_2_in => a_ent_2,      &
+  use blayer_config_mod,         only : bl_scheme, bl_scheme_Kprof,            &
+                                        bl_scheme_HoC,                         &
+                                        blending_Kprof,                        &
+                                        blending_Kprof_3d_smag,                &
+                                        blending_Kprof_2d_smag,                &
+                                        blending_Kprof_blend_smag_fa,          &
+                                        blending_Kprof_blend_1dbl_fa,          &
+                                        blending_Kprof_blend_cth_shcu_only,    &
+                                        blending_HoC, blending_HoC_3d_smag,    &
+                                        blending_HoC_3dte_mk1,                 &
+                                        tke_levels_in => tke_levels,           &
+                                        bdy_tke_in => bdy_tke, bdy_tke_my3,    &
+                                        bdy_tke_my25, bdy_tke_deardorff,       &
+                                        adv_turb_field, my_condense,           &
+                                        shcu_buoy,                             &
+                                        shcu_levels_in => shcu_levels,         &
+                                    my_lowest_pd_surf_in => my_lowest_pd_surf, &
+                                        my_lowest_pd_surf_off,                 &
+                                        my_lowest_pd_surf_businger,            &
+                                        my_lowest_pd_surf_bh91,                &
+                                        my_prod_adj,                           &
+                                        local_above_tkelvs,                    &
+                                        my_force_initialise,                   &
+                                        my_ini_dbdz_min_in => my_ini_dbdz_min, &
+                                        use_l_sq,                              &
+                                        my_simeq_solver,                       &
+                                        my_simeq_solver_bicgstab,              &
+                                        my_simeq_solver_gauss,                 &
+                                        a_ent_shr, a_ent_2_in => a_ent_2,      &
                                         cbl_opt, cbl_opt_conventional,         &
                                         cbl_opt_standard, cbl_opt_adjustable,  &
                                         cbl_mix_fac,                           &
@@ -81,48 +112,55 @@ module um_physics_init_mod
                                 dzrad_disc_opt_in      => dzrad_disc_opt,      &
                                 dzrad_disc_opt_level_ntm1,                     &
                                 dzrad_disc_opt_smooth_1p5,                     &
+                                improved_tke_diag_in   => improved_tke_diag,   &
                                 l_use_sml_dsc_fixes_in => l_use_sml_dsc_fixes, &
                                 l_converge_ga_in       => l_converge_ga,       &
-                                num_sweeps_bflux_in    => num_sweeps_bflux
+                                num_sweeps_bflux_in    => num_sweeps_bflux,    &
+                                cap_blended_ml_in      => cap_blended_ml,      &
+                                shallow_cu_maxtop_in   => shallow_cu_maxtop
 
-  use cloud_config_mod,          only : scheme, scheme_smith, scheme_pc2,     &
-                                        scheme_bimodal,                       &
-                                        rh_crit, rh_crit_opt,                 &
-                                        rh_crit_opt_namelist, rh_crit_opt_tke,&
-                                        pc2ini, pc2ini_smith,                 &
-                                        pc2ini_bimodal,                       &
-                                        cloud_pc2_tol_in => cloud_pc2_tol,    &
-                                        cloud_pc2_tol_2_in => cloud_pc2_tol_2,&
-                                        cff_spread_rate_in => cff_spread_rate,&
-                                        falliceshear_method_in =>             &
-                                        falliceshear_method,                  &
-                                        falliceshear_method_real,             &
-                                        falliceshear_method_constant,         &
-                                        falliceshear_method_off,              &
-                                        subgrid_qv, ice_width_in => ice_width,&
+  use cloud_config_mod,          only : scheme, scheme_smith, scheme_pc2,      &
+                                        scheme_bimodal,                        &
+                                        rh_crit, rh_crit_opt,                  &
+                                        rh_crit_opt_namelist, rh_crit_opt_tke, &
+                                        cloud_pc2_tol_in => cloud_pc2_tol,     &
+                                        cloud_pc2_tol_2_in => cloud_pc2_tol_2, &
+                                        cff_spread_rate_in => cff_spread_rate, &
+                                        falliceshear_method_in =>              &
+                                        falliceshear_method,                   &
+                                        falliceshear_method_real,              &
+                                        falliceshear_method_constant,          &
+                                        falliceshear_method_off,               &
+                                        subgrid_qv, ice_width_in => ice_width, &
                                         cloud_call_b4_conv,                    &
                                         l_ensure_max_in_cloud_pc2_in           &
                                           => l_ensure_max_in_cloud_pc2,        &
-                                    i_pc2_erosion_numerics_in                  &
-                                      => i_pc2_erosion_numerics,               &
-                                    dbsdtbs_turb_0_in => dbsdtbs_turb_0,       &
-                                    ent_coef_bm_in => ent_coef_bm,             &
-                                    ez_max,                                    &
-                                    i_bm_ez_opt_in => i_bm_ez_opt,             &
+                                        ez_max, bm_ez_opt, bm_ez_opt_orig,     &
+                                        bm_ez_opt_subcrit, bm_ez_opt_entpar,   &
+                                        pc2_erosion_numerics,                  &
+                                        pc2_erosion_numerics_explicit,         &
+                                        pc2_erosion_numerics_implicit,         &
+                                        pc2_erosion_numerics_analytic,         &
+                                        pc2_homog_g_method,                    &
+                                        pc2_homog_g_method_cf,                 &
+                                        pc2_homog_g_method_width,              &
+                                        pc2_homog_g_method_rev,                &
+                                        pc2_init_logic,                        &
+                                        pc2_init_logic_original,               &
+                                        pc2_init_logic_smooth,                 &
+                                        pc2_init_method,                       &
+                                        pc2_init_method_smith,                 &
+                                        pc2_init_method_bimodal,               &
+                                        pc2_init_logic_smooth_fix,             &
+                                        dbsdtbs_turb_0_in => dbsdtbs_turb_0,   &
+                                        ent_coef_bm_in => ent_coef_bm,         &
                                     l_bm_sigma_s_grad_in => l_bm_sigma_s_grad, &
-                                    l_bm_tweaks_in => l_bm_tweaks,             &
-                                    max_sigmas_in => max_sigmas,               &
-                                    min_sigx_ft_in => min_sigx_ft,             &
-                                    turb_var_fac_bm_in => turb_var_fac_bm,     &
-                                    two_d_fsd_factor_in => two_d_fsd_factor,   &
-                                    pc2_init_logic, pc2_init_logic_original,   &
-                                    pc2_init_logic_smooth,                     &
-                                    pc2_init_logic_smooth_fix,                 &
-                                    i_pc2_erosion_numerics_explicit,           &
-                                    i_pc2_erosion_numerics_implicit,           &
-                                    i_pc2_erosion_numerics_analytic,           &
-                                    i_bm_ez_opt_orig, i_bm_ez_opt_subcrit,     &
-                                    i_bm_ez_opt_entpar
+                                        l_bm_tweaks_in => l_bm_tweaks,         &
+                                        max_sigmas_in => max_sigmas,           &
+                                        min_sigx_ft_in => min_sigx_ft,         &
+                                        turb_var_fac_bm_in => turb_var_fac_bm, &
+                                        two_d_fsd_factor_in => two_d_fsd_factor
+
 
   use convection_config_mod,     only : cv_scheme,                    &
                                         cv_scheme_gregory_rowntree,   &
@@ -131,15 +169,77 @@ module um_physics_init_mod
                                         number_of_convection_substeps,&
                                         cape_timescale_in => cape_timescale, &
                                         qlmin_in => qlmin,                   &
+                                        mparwtr_in => mparwtr,               &
                                         efrac_in => efrac,                   &
+                                        prog_ent_grad_in => prog_ent_grad,   &
+                                        prog_ent_int_in => prog_ent_int,     &
+                                        prog_ent_max_in => prog_ent_max,     &
                                         prog_ent_min_in => prog_ent_min,     &
                                         orig_mdet_fac_in => orig_mdet_fac,   &
-                                     par_gen_mass_fac_in => par_gen_mass_fac, &
-                                     par_gen_rhpert_in => par_gen_rhpert,     &
-                                     par_radius_ppn_max_in => par_radius_ppn_max, &
-                                     resdep_precipramp, dx_ref_in => dx_ref,   &
+                                        r_det_in => r_det,                   &
+                                        cca_md_scaling,                      &
+                                        cpress_term_in => cpress_term,       &
+                                        ent_fac_sh_in => ent_fac_sh,         &
+                                        thpixs_mid_in => thpixs_mid,         &
+                                        c_mass_sh_in => c_mass_sh,           &
+                                l_conv_prog_dtheta_in => l_conv_prog_dtheta, &
+                                     l_conv_prog_dq_in => l_conv_prog_dq,    &
                                      l_cvdiag_ctop_qmax_in => l_cvdiag_ctop_qmax, &
                                      llcs_first_outer
+
+  use comorph_config_mod,        only :                                        &
+           ass_min_radius_in         => ass_min_radius,                        &
+           autoc_opt_in              => autoc_opt,                             &
+                                        autoc_opt_linear,                      &
+                                        autoc_opt_quadratic,                   &
+           cf_area_coef_in           => cf_area_coef,                          &
+           cf_conv_fac_in            => cf_conv_fac,                           &
+           coef_auto_in              => coef_auto,                             &
+           col_eff_coef_in           => col_eff_coef,                          &
+           core_ent_cmr_in           => core_ent_cmr,                          &
+           core_ent_fac_in           => core_ent_fac,                          &
+           drag_coef_cond_in         => drag_coef_cond,                        &
+           drag_coef_par_in          => drag_coef_par,                         &
+           dx_ref_in                 => dx_ref,                                &
+           ent_coef_in               => ent_coef,                              &
+           hetnuc_temp_in            => hetnuc_temp,                           &
+           max_cmr_in                => max_cmr,                               &
+           min_cmr_in                => min_cmr,                               &
+           min_radius_fac_in         => min_radius_fac,                        &
+           n_dndraft_types_in        => n_dndraft_types,                       &
+           nconc_cf_in               => nconc_cf,                              &
+           nconc_cl_in               => nconc_cl,                              &
+           nconc_graup_in            => nconc_graup,                           &
+           nconc_rain_in             => nconc_rain,                            &
+           nconc_snow_in             => nconc_snow,                            &
+           overlap_power_in          => overlap_power,                         &
+           par_gen_core_fac_in       => par_gen_core_fac,                      &
+           par_gen_mass_fac_in       => par_gen_mass_fac,                      &
+           par_gen_pert_fac_in       => par_gen_pert_fac,                      &
+           par_gen_rhpert_in         => par_gen_rhpert,                        &
+           par_radius_evol_method_in => par_radius_evol_method,                &
+                                        par_radius_evol_method_constant,       &
+                                        par_radius_evol_method_volume,         &
+                                        par_radius_evol_method_no_decrease,    &
+                                        par_radius_evol_method_no_detrain,     &
+           par_radius_init_method_in => par_radius_init_method,                &
+                                        par_radius_init_method_constant,       &
+                                        par_radius_init_method_linear_p,       &
+                                        par_radius_init_method_linear_prq,     &
+                                        par_radius_init_method_linear_prq_w,   &
+                                        par_radius_init_method_linear_p_q,     &
+           par_radius_knob_in        => par_radius_knob,                       &
+           par_radius_knob_max_in    => par_radius_knob_max,                   &
+           par_radius_ppn_max_in     => par_radius_ppn_max,                    &
+           rain_area_min_in          => rain_area_min,                         &
+           rho_rim_in                => rho_rim,                               &
+           resdep_precipramp_in      => resdep_precipramp,                     &
+           tdep_n_cf_in              => tdep_n_cf,                             &
+           tdep_n_cl_in              => tdep_n_cl,                             &
+           turb_len_fac_in           => turb_len_fac,                          &
+           vent_factor_in            => vent_factor,                           &
+           wind_w_buoy_fac_in        => wind_w_buoy_fac,                       &
+           wind_w_fac_in             => wind_w_fac
 
   use extrusion_config_mod,      only : domain_height, number_of_layers
 
@@ -162,27 +262,28 @@ module um_physics_init_mod
                                         nsigmasf_in => nsigmasf,             &
                                         nscalesf_in => nscalesf,             &
                                         microphysics_casim,                  &
+                                        casim_activation,                    &
+                                        casim_activation_fixed,              &
+                                        casim_activation_arg,                &
                                         ci_input_in => ci_input,             &
                                         cic_input_in => cic_input,           &
                                         c_r_correl_in => c_r_correl,         &
+                                        aut_qc_in => aut_qc,                 &
+                                        ai_in => ai,                         &
                                         l_proc_fluxes_in => l_proc_fluxes,   &
                                         l_improve_precfrac_checks_in         &
                                           => l_improve_precfrac_checks,      &
                                         l_mcr_precfrac_in => l_mcr_precfrac, &
-                                   i_update_precfrac_in => i_update_precfrac,&
-                                   i_update_precfrac_homog,                  &
-                                   i_update_precfrac_correl,                 &
+                                        update_precfrac_opt,                 &
+                                        update_precfrac_opt_homog,           &
+                                        update_precfrac_opt_correl,          &
                                         heavy_rain_evap_fac_in =>            &
                                                 heavy_rain_evap_fac
 
-  use mixing_config_mod,         only : smagorinsky,                 &
-                                        mixing_method => method,     &
-                                        method_3d_smag,              &
-                                        method_2d_smag,              &
-                                        method_blend_smag_fa,        &
-                                        method_blend_1dbl_fa,        &
-                                        mix_factor_in => mix_factor, &
-                                        leonard_term
+  use mixing_config_mod,         only : smagorinsky,                   &
+                                        mix_factor_in => mix_factor,   &
+                                        leonard_term,                  &
+                                        leonard_tke
 
   use radiation_config_mod,      only : topography, topography_horizon
 
@@ -261,6 +362,7 @@ module um_physics_init_mod
                                            rp_lsfc_z0v,                        &
                                            rp_mp_ice_fspd,                     &
                                            rp_mp_fxd_cld_num,                  &
+                                           rp_mp_ci,                           &
                                            rp_mp_mp_czero,                     &
                                            rp_mp_mpof,                         &
                                            rp_mp_ndrop_surf,                   &
@@ -272,6 +374,11 @@ module um_physics_init_mod
                                          include_moisture_moist,    &
                                          include_moisture_dry
 
+  use io_config_mod, only: checkpoint_read
+
+  use initialization_config_mod, only: init_option, init_option_checkpoint_dump
+  use timestepping_config_mod, only: timestepping_method => method, &
+                                     method_no_timestepping, method_jules
 
   ! Other LFRic modules used
   use constants_mod,        only: i_def, l_def, r_um, i_um, r_def, r_bl
@@ -280,6 +387,7 @@ module um_physics_init_mod
   use log_mod,              only : log_event,         &
                                    log_scratch_space, &
                                    LOG_LEVEL_ERROR,   &
+                                   LOG_LEVEL_WARNING, &
                                    LOG_LEVEL_INFO
 
   use mr_indices_mod,       only : nummr_to_transport
@@ -337,7 +445,7 @@ contains
          sc_diag_opt, sc_diag_orig, sc_diag_cu_relax, sc_diag_cu_rh_max,   &
          sc_diag_all_rh_max,                                               &
          bl_res_inv, cosine_inv_flux, target_inv_profile, blending_option, &
-         a_ent_shr_nml, alpha_cd, puns, pstb, kprof_cu,                    &
+         a_ent_shr_nml, alpha_cd, puns, pstb, kprof_cu, ishear_bl,         &
          non_local_bl, flux_bc_opt, i_bl_vn_9c, sharp_sea_mes_land,        &
          lem_conven, to_sharp_across_1km, off, on, DynDiag_Ribased,        &
          DynDiag_ZL_corrn, blend_allpoints, ng_stress,                     &
@@ -346,12 +454,19 @@ contains
          except_disc_inv, ntml_level_corrn, free_trop_layers,              &
          smooth_to_bdys, sharpest, lem_stability, sg_shear_enh_lambda,     &
          l_new_kcloudtop, buoy_integ, l_reset_dec_thres, DynDiag_ZL_CuOnly,&
-         i_interp_local, i_interp_local_gradients,                         &
-         l_noice_in_turb, l_use_var_fixes,                                 &
+         i_interp_local, i_interp_local_gradients, l_noice_in_turb,        &
          i_interp_local_cf_dbdz, tke_diag_fac, a_ent_2, dec_thres_cloud,   &
          dec_thres_cu, near_neut_z_on_l, blend_gridindep_fa,               &
+         blend_cth_shcu_only, shallow_cu_maxtop, cap_blended_ml,           &
          specified_fluxes_tstar, buoy_integ_low, num_sweeps_bflux,         &
-         l_use_sml_dsc_fixes, l_converge_ga
+         l_use_sml_dsc_fixes, l_converge_ga, improved_tke_diag, i_bl_vn_1a
+    use mym_option_mod, only: bdy_tke, deardorff, mymodel25, mymodel3,     &
+         l_3dtke, tke_levels, l_local_above_tkelvs, l_my_initialize,       &
+         my_ini_dbdz_min, l_adv_turb_field, l_my_condense, l_shcu_buoy,    &
+         shcu_levels, wb_ng_max, my_lowest_pd_surf, no_pd_surf, businger,  &
+         bh1991, l_my_prod_adj, my_z_limit_elb, tke_cm_mx, tke_cm_fa,      &
+         tke_dlen, ddf_length, l_use_l_sq, l_leonard_tke,                  &
+         simeq_solver, bicgstab, gauss
     use cloud_inputs_mod, only: i_cld_vn, forced_cu, i_rhcpt, i_cld_area,  &
          rhcrit, ice_fraction_method,falliceshear_method, cff_spread_rate, &
          l_subgrid_qv, ice_width, min_liq_overlap, i_eacf, not_mixph,      &
@@ -366,15 +481,27 @@ contains
          l_pc2_homog_conv_pressure, l_cloud_call_b4_conv,                  &
          i_bm_ez_orig, i_bm_ez_subcrit, i_bm_ez_entpar
     use cloud_config_mod, only: cld_fsd_hill
-    use comorph_um_namelist_mod, only: ass_min_radius, autoc_opt,            &
-         cf_conv_fac, coef_auto, col_eff_coef, core_ent_fac, drag_coef_cond, &
-         drag_coef_par, ent_coef, hetnuc_temp, l_core_ent_cmr,               &
-         n_dndraft_types, overlap_power, par_gen_core_fac, par_gen_mass_fac, &
-         par_gen_pert_fac, par_gen_rhpert, par_radius_evol_method,           &
-         par_radius_init_method, par_radius_knob, par_radius_knob_max,       &
-         par_radius_ppn_max, r_fac_tdep_n, rain_area_min, rho_rim,           &
-         vent_factor, wind_w_buoy_fac, wind_w_fac, check_run_comorph,        &
-         l_resdep_precipramp, dx_ref
+    use comorph_um_namelist_mod, only:                                         &
+         ! UM namelist entries
+         ass_min_radius, autoc_opt, cf_area_coef, cf_conv_fac, coef_auto,      &
+         col_eff_coef, core_ent_fac, drag_coef_cond, drag_coef_par, dx_ref,    &
+         ent_coef, hetnuc_temp, l_core_ent_cmr, l_resdep_precipramp,           &
+         max_cmr, min_cmr, min_radius_fac, n_dndraft_types,                    &
+         nconc_cf, nconc_cl, nconc_graup, nconc_rain, nconc_snow,              &
+         overlap_power, par_gen_core_fac, par_gen_mass_fac,                    &
+         par_gen_pert_fac, par_gen_rhpert, par_radius_evol_method,             &
+         par_radius_init_method, par_radius_knob, par_radius_knob_max,         &
+         par_radius_ppn_max, rain_area_min, rho_rim, tdep_n_cf, tdep_n_cl,     &
+         turb_len_fac, vent_factor, wind_w_buoy_fac, wind_w_fac,               &
+         ! Namelis checking subroutine
+         check_run_comorph,                                                    &
+         ! Allowed values for multi-option switches
+         no_dependence, rain_dependence, qfacrain_dependence, w_dependence,    &
+         linear_qfacrain_dep
+    use comorph_constants_mod, only:                                           &
+         autoc_linear, autoc_quadratic,                                        &
+         par_radius_evol_const, par_radius_evol_volume,                        &
+         par_radius_evol_no_decrease, par_radius_evol_no_detrain
     use cv_run_mod, only: icvdiag, cvdiag_inv, cvdiag_sh_wtest,            &
          limit_pert_opt, tv1_sd_opt, iconv_congestus, iconv_deep,          &
          ent_fac_dp, cldbase_opt_dp, cldbase_opt_sh, w_cape_limit,         &
@@ -436,6 +563,7 @@ contains
         a_ratio_fac, l_droplet_tpr, qclrime, l_shape_rime, ndrop_surf,       &
         z_surf, l_fsd_generator, mp_dz_scal, l_subgrid_qcl_mp, aut_qc,       &
         l_mphys_nonshallow, casim_iopt_act, casim_iopt_inuc,                 &
+        abdul_razzak_ghan,                                                   &
         casim_aerosol_couple_choice,l_casim,                                 &
         casim_aerosol_process_level,casim_moments_choice,                    &
         casim_aerosol_option,                                                &
@@ -458,7 +586,8 @@ contains
                               irs, ire, jrs, jre, krs, kre,              &
                               casim_moments_option, n_casim_tracers,     &
                               l_casim_warm_only,                         &
-                              l_ukca_aerosol, no_aerosol_modes
+                              l_ukca_aerosol, no_aerosol_modes,          &
+                              soluble_insoluble_modes
     use casim_stph, only: l_rp2_casim
     use casim_set_dependent_switches_mod, only:                                &
           casim_set_dependent_switches,                                        &
@@ -470,10 +599,11 @@ contains
          i_cld_bimodal, rhcpt_off, acf_off, real_shear, rhcpt_tke_based,       &
          pc2eros_exp_rh,pc2eros_hybrid_sidesonly, ignore_shear,                &
          original_but_wrong, acf_cusack, cbl_and_cu, forced_cu_cca,            &
-         pc2init_smith, pc2init_bimodal, i_pc2_homog_g_cf, i_pc2_homog_g_width,&
+         pc2init_smith, pc2init_bimodal, i_pc2_homog_g_cf,                     &
+         i_pc2_homog_g_width, i_pc2_homog_g_rev,                               &
          pc2init_logic_original, pc2init_logic_smooth,                         &
-         pc2init_logic_smooth_fix,                                             &
-         i_pc2_erosion_explicit, i_pc2_erosion_implicit, i_pc2_erosion_analytic
+         pc2init_logic_smooth_fix, i_pc2_erosion_explicit,                     &
+         i_pc2_erosion_implicit, i_pc2_erosion_analytic
     use rad_input_mod, only: two_d_fsd_factor
     use science_fixes_mod, only:  i_fix_mphys_drop_settle, second_fix,      &
          l_pc2_homog_turb_q_neg, l_fix_ccb_cct, l_fix_conv_precip_evap,     &
@@ -486,7 +616,7 @@ contains
          a_ent_shr_rp_max, alnir_rp, alpar_rp, cbl_mix_fac_rp, cs_rp,       &
          fxd_cld_num_rp, g0_rp, g1_rp, ice_fspd_rp, i_rp_scheme, l_rp2,     &
          l_rp2_cycle_in, l_rp2_cycle_out, lai_mult_rp, lambda_min_rp,       &
-         mp_czero_rp, mpof_rp, ndrop_surf_rp, omega_rp, omnir_rp,           &
+         m_ci_rp, mp_czero_rp, mpof_rp, ndrop_surf_rp, omega_rp, omnir_rp,  &
          orog_drag_param_rp, par_mezcla_rp, ran_max, ricrit_rp,             &
          rp2_callfreq, rp2_cycle_tm, rp2_decorr_ts, snow_fspd_rp,           &
          z0_soil_rp, z0_urban_mult_rp, z0hm_soil_rp, z0hm_pft_rp, z0v_rp
@@ -624,8 +754,6 @@ contains
         call log_event( log_scratch_space, LOG_LEVEL_ERROR )
       end if
 
-      a_ent_shr_nml = real(a_ent_shr, r_bl)
-      a_ent_2       = real(a_ent_2_in, r_bl)
       bl_levels     = bl_levels_in
       if(allocated(alpha_cd))deallocate(alpha_cd)
       allocate(alpha_cd(bl_levels))
@@ -639,25 +767,6 @@ contains
           cbl_op = lem_std
         case(cbl_opt_adjustable)
           cbl_op = lem_adjust
-      end select
-
-      dec_thres_cloud = real(dec_thres_cloud_in, r_bl)
-      dec_thres_cu = real(dec_thres_cu_in, r_bl)
-
-      select case ( entr_smooth_dec_in )
-      case ( entr_smooth_dec_off )
-        entr_smooth_dec = off
-      case ( entr_smooth_dec_on )
-        entr_smooth_dec = on
-      case ( entr_smooth_dec_taper_zh )
-        entr_smooth_dec = entr_taper_zh
-      end select
-
-      select case ( dzrad_disc_opt_in )
-      case ( dzrad_disc_opt_level_ntm1 )
-        dzrad_disc_opt = dzrad_ntm1
-      case ( dzrad_disc_opt_smooth_1p5 )
-        dzrad_disc_opt = dzrad_1p5dz
       end select
 
       select case (flux_bc_opt_in)
@@ -677,60 +786,7 @@ contains
         fric_heating = off
       end if
 
-      i_bl_vn = i_bl_vn_9c
-
-      select case (dyn_diag)
-        case(dyn_diag_zi_l_sea)
-          idyndiag = DynDiag_ZL_corrn
-        case(dyn_diag_zi_l_cu)
-          idyndiag = DynDiag_ZL_CuOnly
-        case(dyn_diag_ri_based)
-          idyndiag = DynDiag_Ribased
-      end select
-      near_neut_z_on_l = real(near_neut_z_on_l_in, r_bl)
-
-      ! Interpolate the vertical gradients of sl,qw and calculate
-      ! stability dbdz and Kh on theta-levels
-      select case (interp_local)
-        case(interp_local_gradients)
-          i_interp_local = i_interp_local_gradients
-        case(interp_local_cf_dbdz)
-          i_interp_local = i_interp_local_cf_dbdz
-        end select
-
-      select case (reduce_fa_mix)
-        case(reduce_fa_mix_inv_and_cu_lcl)
-          keep_ri_fa = on
-        case(reduce_fa_mix_inv_only)
-          keep_ri_fa = except_disc_inv
-      end select
-
-      select case(kprof_cu_in)
-        case(kprof_cu_buoy_integ)
-          kprof_cu = buoy_integ
-        case(kprof_cu_buoy_integ_low)
-          kprof_cu = buoy_integ_low
-      end select
-
-      select case(bl_res_inv_in)
-        case(bl_res_inv_off)
-          bl_res_inv = off
-        case(bl_res_inv_cosine_inv_flux)
-          bl_res_inv = cosine_inv_flux
-        case(bl_res_inv_target_inv_profile)
-          bl_res_inv = target_inv_profile
-      end select
-
-      select case(ng_stress_in)
-        case(ng_stress_BG97_limited)
-          ng_stress = BrownGrant97_limited
-        case(ng_stress_BG97_original)
-          ng_stress = BrownGrant97_original
-      end select
-
       l_noice_in_turb = noice_in_turb
-      l_new_kcloudtop   = new_kcloudtop
-      l_reset_dec_thres = .true.
       lambda_min_nml    = 40.0_r_um
 
       select case (free_atm_mix)
@@ -746,17 +802,6 @@ contains
 
       pstb = 2.0_r_um
       puns = real(p_unstable, r_um)
-
-      select case ( sc_diag_opt_in )
-      case ( sc_diag_opt_orig )
-        sc_diag_opt = sc_diag_orig
-      case ( sc_diag_opt_cu_relax )
-        sc_diag_opt = sc_diag_cu_relax
-      case ( sc_diag_opt_cu_rh_max )
-        sc_diag_opt = sc_diag_cu_rh_max
-      case ( sc_diag_opt_all_rh_max )
-        sc_diag_opt = sc_diag_all_rh_max
-      end select
 
       ritrans = 0.1_r_bl
 
@@ -776,20 +821,198 @@ contains
           sg_orog_mixing = sg_shear_enh_lambda
       end select
 
-      ! TKE scaling parameter and switch for fixes to variance diagnostics
-      tke_diag_fac  = 1.0_r_bl
-      l_use_var_fixes = .true.
-      zhloc_depth_fac = real(zhloc_depth_fac_in, r_bl)
-
       if (topography == topography_horizon) then
         ! Set control logical for use of skyview factor in JULES
         l_skyview = .true.
       end if
 
-      l_use_sml_dsc_fixes = l_use_sml_dsc_fixes_in
-      l_converge_ga       = l_converge_ga_in
-      num_sweeps_bflux    = num_sweeps_bflux_in
+      select case (bl_scheme)
+      case (bl_scheme_Kprof)
+        i_bl_vn = i_bl_vn_9c
 
+        a_ent_shr_nml = real(a_ent_shr, r_bl)
+        a_ent_2       = real(a_ent_2_in, r_bl)
+
+        dec_thres_cloud = real(dec_thres_cloud_in, r_bl)
+        dec_thres_cu = real(dec_thres_cu_in, r_bl)
+
+        select case ( entr_smooth_dec_in )
+        case ( entr_smooth_dec_off )
+          entr_smooth_dec = off
+        case ( entr_smooth_dec_on )
+          entr_smooth_dec = on
+        case ( entr_smooth_dec_taper_zh )
+          entr_smooth_dec = entr_taper_zh
+        end select
+
+        select case ( dzrad_disc_opt_in )
+        case ( dzrad_disc_opt_level_ntm1 )
+          dzrad_disc_opt = dzrad_ntm1
+        case ( dzrad_disc_opt_smooth_1p5 )
+          dzrad_disc_opt = dzrad_1p5dz
+        end select
+
+        select case (dyn_diag)
+          case(dyn_diag_zi_l_sea)
+            idyndiag = DynDiag_ZL_corrn
+          case(dyn_diag_zi_l_cu)
+            idyndiag = DynDiag_ZL_CuOnly
+          case(dyn_diag_ri_based)
+            idyndiag = DynDiag_Ribased
+        end select
+        near_neut_z_on_l = real(near_neut_z_on_l_in, r_bl)
+
+        ! Interpolate the vertical gradients of sl,qw and calculate
+        ! stability dbdz and Kh on theta-levels
+        select case (interp_local)
+          case(interp_local_gradients)
+            i_interp_local = i_interp_local_gradients
+          case(interp_local_cf_dbdz)
+            i_interp_local = i_interp_local_cf_dbdz
+        end select
+
+        select case (reduce_fa_mix)
+          case(reduce_fa_mix_inv_and_cu_lcl)
+            keep_ri_fa = on
+          case(reduce_fa_mix_inv_only)
+            keep_ri_fa = except_disc_inv
+        end select
+
+        select case(kprof_cu_in)
+          case(kprof_cu_buoy_integ)
+            kprof_cu = buoy_integ
+          case(kprof_cu_buoy_integ_low)
+            kprof_cu = buoy_integ_low
+        end select
+
+        select case(bl_res_inv_in)
+          case(bl_res_inv_off)
+            bl_res_inv = off
+          case(bl_res_inv_cosine_inv_flux)
+            bl_res_inv = cosine_inv_flux
+          case(bl_res_inv_target_inv_profile)
+            bl_res_inv = target_inv_profile
+        end select
+
+        select case(ng_stress_in)
+          case(ng_stress_BG97_limited)
+            ng_stress = BrownGrant97_limited
+          case(ng_stress_BG97_original)
+            ng_stress = BrownGrant97_original
+        end select
+
+        l_new_kcloudtop   = new_kcloudtop
+        l_reset_dec_thres = .true.
+
+        select case ( sc_diag_opt_in )
+        case ( sc_diag_opt_orig )
+          sc_diag_opt = sc_diag_orig
+        case ( sc_diag_opt_cu_relax )
+          sc_diag_opt = sc_diag_cu_relax
+        case ( sc_diag_opt_cu_rh_max )
+          sc_diag_opt = sc_diag_cu_rh_max
+        case ( sc_diag_opt_all_rh_max )
+          sc_diag_opt = sc_diag_all_rh_max
+        end select
+
+        ! TKE scaling parameter
+        tke_diag_fac  = 1.0_r_bl
+        zhloc_depth_fac = real(zhloc_depth_fac_in, r_bl)
+
+        improved_tke_diag   = improved_tke_diag_in
+        l_use_sml_dsc_fixes = l_use_sml_dsc_fixes_in
+        l_converge_ga       = l_converge_ga_in
+        num_sweeps_bflux    = num_sweeps_bflux_in
+
+      case (bl_scheme_HoC)
+        i_bl_vn = i_bl_vn_1a
+
+        ishear_bl = off
+
+        select case (bdy_tke_in)
+          case(bdy_tke_my3)
+            bdy_tke = mymodel3
+          case(bdy_tke_my25)
+            bdy_tke = mymodel25
+          case(bdy_tke_deardorff)
+            bdy_tke = deardorff
+        end select
+
+        ! A negative value for tke_levels means it should default to bl_levels.
+        if (tke_levels_in < 0 .or. tke_levels_in > bl_levels) then
+          tke_levels = bl_levels
+          write( log_scratch_space, '(A)' )                                    &
+            'The value of tke_levels has been reset to bl_levels'
+          call log_event( log_scratch_space, LOG_LEVEL_WARNING )
+        else
+          tke_levels = tke_levels_in
+        end if
+
+        ! A negative value for shcu_levels means it should default to tke_levels.
+        if (shcu_levels_in < 0 .or. shcu_levels_in > tke_levels) then
+          shcu_levels = tke_levels
+          write( log_scratch_space, '(A)' )                                    &
+            'The value of shcu_levels has been reset to tke_levels'
+          call log_event( log_scratch_space, LOG_LEVEL_WARNING )
+        else
+          shcu_levels = shcu_levels_in
+        end if
+
+        l_local_above_tkelvs = local_above_tkelvs
+        if (checkpoint_read) then
+          ! In the continuation run, initial fields of prognostic variables
+          ! are always initialised from checkpoint file.
+          l_my_initialize = .false.
+        else
+          if (init_option == init_option_checkpoint_dump) then
+            ! If initialised from LFRic, initial fields are read or diagnosed,
+            ! depending on the switch
+            l_my_initialize = my_force_initialise
+          else
+            ! It is currently unavailable to read initial fields from file
+            ! for other init options, so always diagnosed.
+            l_my_initialize = .true.
+          end if
+        end if
+        my_ini_dbdz_min = my_ini_dbdz_min_in
+        l_adv_turb_field = adv_turb_field
+        l_my_condense = my_condense
+        l_shcu_buoy = shcu_buoy
+        wb_ng_max = 0.05_r_bl
+
+        select case (my_lowest_pd_surf_in)
+          case (my_lowest_pd_surf_off)
+            my_lowest_pd_surf = no_pd_surf
+          case (my_lowest_pd_surf_businger)
+            my_lowest_pd_surf = businger
+          case (my_lowest_pd_surf_bh91)
+            my_lowest_pd_surf = bh1991
+        end select
+
+        if (bdy_tke_in == bdy_tke_my3) then
+          l_my_prod_adj = my_prod_adj
+          select case (my_simeq_solver)
+            case (my_simeq_solver_bicgstab)
+              simeq_solver = bicgstab
+            case (my_simeq_solver_gauss)
+              simeq_solver = gauss
+          end select
+        end if
+
+        my_z_limit_elb = 1.0e10_r_bl
+        tke_cm_mx = 0.1_r_bl
+        tke_cm_fa = 0.1_r_bl
+        tke_dlen = ddf_length
+
+      case default
+        if ( timestepping_method /= method_no_timestepping .and.               &
+             timestepping_method /= method_jules ) then
+          write( log_scratch_space, '(A)' )                                    &
+            'An unexpected boundary layer scheme is being used.'
+          call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+        end if
+
+      end select
     end if
 
     ! ----------------------------------------------------------------
@@ -823,7 +1046,7 @@ contains
       ! Options needed by all convection schemes
       l_param_conv = .true.
       fac_qsat     = 0.350_r_um
-      mparwtr      = 1.0000e-3_r_um
+      mparwtr      = mparwtr_in
       qlmin        = qlmin_in
 
       ! Options which are bespoke to the choice of scheme
@@ -848,49 +1071,97 @@ contains
         l_mom       = .true.
         l_ccrad     = .true.
         l_3d_cca    = .true.
+        l_conv_prog_dtheta  = l_conv_prog_dtheta_in
+        l_conv_prog_dq      = l_conv_prog_dq_in
+        tau_conv_prog_dtheta = 2700.0_r_um
+        tau_conv_prog_dq    =  2700.0_r_um
 
-        ! main Comorph options
-        ass_min_radius = 500.0_r_um
-        autoc_opt = 2
-        cf_conv_fac = 2.0_r_um
-        coef_auto = 0.025_r_um
-        col_eff_coef = 1.0_r_um
-        core_ent_fac = 1.0_r_um
-        drag_coef_cond = 0.5_r_um
-        drag_coef_par = 0.5_r_um
-        dx_ref = dx_ref_in
-        ent_coef = 0.2_r_um
-        hetnuc_temp = 263.0_r_um
-        l_core_ent_cmr = .true.
-        l_resdep_precipramp = resdep_precipramp
-        n_dndraft_types = 1
-        overlap_power = 0.5_r_um
-        par_gen_core_fac = 3.0_r_um
-        par_gen_mass_fac = par_gen_mass_fac_in
-        par_gen_pert_fac = 0.333_r_um
-        par_gen_rhpert = par_gen_rhpert_in
-        par_radius_evol_method = 3
-        par_radius_init_method = 4
-        par_radius_knob = 0.45_r_um
-        par_radius_knob_max = 2.0_r_um
-        par_radius_ppn_max = par_radius_ppn_max_in
-        r_fac_tdep_n = 8.18_r_um
-        rain_area_min = 0.05_r_um
-        rho_rim = 600.0_r_um
-        vent_factor = 0.25_r_um
-        wind_w_buoy_fac = 1.0_r_um
-        wind_w_fac = 1.0_r_um
+        ! CoMorph namelist settings...
+
+        ! Top-level settings:
+        n_dndraft_types        = n_dndraft_types_in
+        cf_conv_fac            = real( cf_conv_fac_in,            r_um )
+        wind_w_buoy_fac        = real( wind_w_buoy_fac_in,        r_um )
+        overlap_power          = real( overlap_power_in,          r_um )
+        rain_area_min          = real( rain_area_min_in,          r_um )
+
+        ! Conv triggering and parcel initialisation
+        par_gen_mass_fac       = real( par_gen_mass_fac_in,       r_um )
+        par_gen_pert_fac       = real( par_gen_pert_fac_in,       r_um )
+        par_gen_core_fac       = real( par_gen_core_fac_in,       r_um )
+        par_gen_rhpert         = real( par_gen_rhpert_in,         r_um )
+        select case ( par_radius_init_method_in )
+          case ( par_radius_init_method_constant )
+            par_radius_init_method = no_dependence
+          case ( par_radius_init_method_linear_p )
+            par_radius_init_method = rain_dependence
+          case ( par_radius_init_method_linear_prq )
+            par_radius_init_method = qfacrain_dependence
+          case ( par_radius_init_method_linear_prq_w )
+            par_radius_init_method = w_dependence
+          case ( par_radius_init_method_linear_p_q )
+            par_radius_init_method = linear_qfacrain_dep
+        end select
+        par_radius_knob        = real( par_radius_knob_in,        r_um )
+        par_radius_knob_max    = real( par_radius_knob_max_in,    r_um )
+        par_radius_ppn_max     = real( par_radius_ppn_max_in,     r_um )
+        l_resdep_precipramp    = resdep_precipramp_in
+        dx_ref                 = real( dx_ref_in,                 r_um )
+        ass_min_radius         = real( ass_min_radius_in,         r_um )
+        min_radius_fac         = real( min_radius_fac_in,         r_um )
+        turb_len_fac           = real( turb_len_fac_in,           r_um )
+
+        ! Plume model
+        ent_coef               = real( ent_coef_in,               r_um )
+        l_core_ent_cmr         = core_ent_cmr_in
+        core_ent_fac           = real( core_ent_fac_in,           r_um )
+        min_cmr                = real( min_cmr_in,                r_um )
+        max_cmr                = real( max_cmr_in,                r_um )
+        drag_coef_par          = real( drag_coef_par_in,          r_um )
+        select case ( par_radius_evol_method_in )
+          case ( par_radius_evol_method_constant )
+            par_radius_evol_method = par_radius_evol_const
+          case ( par_radius_evol_method_volume )
+            par_radius_evol_method = par_radius_evol_volume
+          case ( par_radius_evol_method_no_decrease )
+            par_radius_evol_method = par_radius_evol_no_decrease
+          case ( par_radius_evol_method_no_detrain )
+            par_radius_evol_method = par_radius_evol_no_detrain
+        end select
+
+        ! In-plume microphysics
+        select case ( autoc_opt_in )
+          case ( autoc_opt_linear )
+            autoc_opt = autoc_linear
+          case (autoc_opt_quadratic )
+            autoc_opt = autoc_quadratic
+        end select
+        coef_auto              = real( coef_auto_in,              r_um )
+        hetnuc_temp            = real( hetnuc_temp_in,            r_um )
+        cf_area_coef           = real( cf_area_coef_in,           r_um )
+        wind_w_fac             = real( wind_w_fac_in,             r_um )
+        col_eff_coef           = real( col_eff_coef_in,           r_um )
+        drag_coef_cond         = real( drag_coef_cond_in,         r_um )
+        vent_factor            = real( vent_factor_in,            r_um )
+        rho_rim                = real( rho_rim_in,                r_um )
+        nconc_cl               = real( nconc_cl_in,               r_um )
+        nconc_rain             = real( nconc_rain_in,             r_um )
+        nconc_cf               = real( nconc_cf_in,               r_um )
+        nconc_snow             = real( nconc_snow_in,             r_um )
+        nconc_graup            = real( nconc_graup_in,            r_um )
+        tdep_n_cl              = real( tdep_n_cl_in,              r_um )
+        tdep_n_cf              = real( tdep_n_cf_in,              r_um )
 
         ! check the namelist
         call check_run_comorph()
 
       case(cv_scheme_gregory_rowntree)
 
-      if ( boundary_layer /= boundary_layer_um ) then
-        write( log_scratch_space, '(A)' )                                   &
-            'UM boundary layer is required for GR convection - please switch on'
-        call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-      end if
+        if ( boundary_layer /= boundary_layer_um ) then
+          write( log_scratch_space, '(A)' )                                    &
+           'UM boundary layer is required for GR convection - please switch on'
+          call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+        end if
 
         i_convection_vn     = i_convection_vn_6a
         adapt               = 8
@@ -908,7 +1179,7 @@ contains
         cca2d_md_opt        = 2
         cca2d_sh_opt        = 2
         cca_dp_knob         = 0.80_r_um
-        cca_md_knob         = 0.80_r_um
+        cca_md_knob         = cca_md_scaling
         cca_sh_knob         = 0.40_r_um
         ccw_dp_knob         = 1.00_r_um
         ccw_for_precip_opt  = 4
@@ -917,7 +1188,7 @@ contains
         cldbase_opt_md      = 2
         cnv_cold_pools      = 0
         cnv_wat_load_opt    = 0
-        cpress_term         = 0.3_r_um
+        cpress_term         = cpress_term_in
         dd_opt              = 1
         deep_cmt_opt        = 6
         eff_dcff            = 3.0_r_um
@@ -936,8 +1207,8 @@ contains
         l_ccrad             = .true.
         l_cmt_heating       = .true.
         l_conv_prog_precip  = .true.
-        l_conv_prog_dtheta  = .true.
-        l_conv_prog_dq      = .true.
+        l_conv_prog_dtheta  = l_conv_prog_dtheta_in
+        l_conv_prog_dq      = l_conv_prog_dq_in
         l_cv_conserve_check = .true.
         l_fcape             = .true.
         l_mom               = .true.
@@ -952,24 +1223,24 @@ contains
         n_conv_calls        = number_of_convection_substeps
         pr_melt_frz_opt     = 2
         qstice              = 3.5000e-3_r_um
-        r_det               = 0.5000_r_um
+        r_det               = r_det_in
         rad_cloud_decay_opt = 0
         sh_pert_opt         = 1
         t_melt_snow         = 276.15_r_um
         termconv            = 2
         tice                = 263.1500_r_um
-        thpixs_mid          = 0.5_r_um
+        thpixs_mid          = thpixs_mid_in
         tower_factor        = 1.0000_r_um
         ud_factor           = 1.0000_r_um
         tau_conv_prog_precip = 10800.0_r_um
         tau_conv_prog_dtheta = 2700.0_r_um
         tau_conv_prog_dq    =  2700.0_r_um
-        prog_ent_grad       = -1.1_r_um
-        prog_ent_int        = -2.9_r_um
+        prog_ent_grad       = prog_ent_grad_in
+        prog_ent_int        = prog_ent_int_in
         prog_ent_min        = prog_ent_min_in
-        prog_ent_max        = 2.5_r_um
-        ent_fac_sh          = 1.0_r_um
-        c_mass_sh           = 0.03_r_um
+        prog_ent_max        = prog_ent_max_in
+        ent_fac_sh          = ent_fac_sh_in
+        c_mass_sh           = c_mass_sh_in
         orig_mdet_fac       = orig_mdet_fac_in
 
       case(cv_scheme_lambert_lewis)
@@ -1053,7 +1324,7 @@ contains
 
       if ( moisture_formulation == moisture_formulation_dry ) then
         write( log_scratch_space, '(A)' )                                   &
-            'moisture_formulation /= ''dry'' is required for UM cloud'
+            "moisture_formulation /= 'dry' is required for UM cloud"
         call log_event( log_scratch_space, LOG_LEVEL_ERROR )
       end if
 
@@ -1082,7 +1353,8 @@ contains
 
       ! Bimodal cloud-scheme options
       ! (used if scheme == scheme_bimodal .OR.
-      !          scheme == scheme_pc2 and pc2ini == pc2ini_bimodal).
+      !          scheme == scheme_pc2 and
+      ! pc2_init_method == pc2_init_method_bimodal).
       ! For now just set them regardless as cannot be trigger-ignored.
       ent_coef_bm       = real( ent_coef_bm_in, r_um )
       ez_max_bm         = real( ez_max, r_um )
@@ -1091,12 +1363,12 @@ contains
       turb_var_fac_bm   = real( turb_var_fac_bm_in, r_um )
       l_bm_sigma_s_grad = l_bm_sigma_s_grad_in
       l_bm_tweaks       = l_bm_tweaks_in
-      SELECT CASE ( i_bm_ez_opt_in )
-      CASE ( i_bm_ez_opt_orig )
+      SELECT CASE ( bm_ez_opt )
+      CASE ( bm_ez_opt_orig )
         i_bm_ez_opt = i_bm_ez_orig
-      CASE ( i_bm_ez_opt_subcrit )
+      CASE ( bm_ez_opt_subcrit )
         i_bm_ez_opt = i_bm_ez_subcrit
-      CASE ( i_bm_ez_opt_entpar )
+      CASE ( bm_ez_opt_entpar )
         i_bm_ez_opt = i_bm_ez_entpar
       END SELECT
 
@@ -1120,11 +1392,9 @@ contains
         dbsdtbs_turb_0               = real( dbsdtbs_turb_0_in, r_um )
         if (cv_scheme == cv_scheme_comorph) then
           forced_cu = forced_cu_cca
-          i_pc2_homog_g_method = i_pc2_homog_g_width
           l_pc2_homog_conv_pressure = .true.
         else
           forced_cu = cbl_and_cu
-          i_pc2_homog_g_method = i_pc2_homog_g_cf
           l_pc2_homog_conv_pressure = .false.
         end if
         forced_cu_fac                = 0.5_r_um
@@ -1134,6 +1404,22 @@ contains
         i_pc2_erosion_method         = pc2eros_hybrid_sidesonly
         l_ensure_min_in_cloud_qcf    = .false.
         l_ensure_max_in_cloud_pc2    = l_ensure_max_in_cloud_pc2_in
+        select case(pc2_erosion_numerics)
+          case(pc2_erosion_numerics_explicit)
+            i_pc2_erosion_numerics = i_pc2_erosion_explicit
+          case(pc2_erosion_numerics_implicit)
+            i_pc2_erosion_numerics = i_pc2_erosion_implicit
+          case(pc2_erosion_numerics_analytic)
+            i_pc2_erosion_numerics = i_pc2_erosion_analytic
+        end select
+        select case(pc2_homog_g_method)
+          case(pc2_homog_g_method_cf)
+            i_pc2_homog_g_method = i_pc2_homog_g_cf
+          case(pc2_homog_g_method_width)
+            i_pc2_homog_g_method = i_pc2_homog_g_width
+          case(pc2_homog_g_method_rev)
+            i_pc2_homog_g_method = i_pc2_homog_g_rev
+        end select
         select case(pc2_init_logic)
           case(pc2_init_logic_original)
             i_pc2_init_logic = pc2init_logic_original
@@ -1142,15 +1428,11 @@ contains
           case(pc2_init_logic_smooth_fix)
             i_pc2_init_logic = pc2init_logic_smooth_fix
         end select
-        if (pc2ini == pc2ini_smith)   i_pc2_init_method = pc2init_smith
-        if (pc2ini == pc2ini_bimodal) i_pc2_init_method = pc2init_bimodal
-        select case(i_pc2_erosion_numerics_in)
-          case(i_pc2_erosion_numerics_explicit)
-            i_pc2_erosion_numerics = i_pc2_erosion_explicit
-          case(i_pc2_erosion_numerics_implicit)
-            i_pc2_erosion_numerics = i_pc2_erosion_implicit
-          case(i_pc2_erosion_numerics_analytic)
-            i_pc2_erosion_numerics = i_pc2_erosion_analytic
+        select case(pc2_init_method)
+          case(pc2_init_method_smith)
+            i_pc2_init_method = pc2init_smith
+          case(pc2_init_method_bimodal)
+            i_pc2_init_method = pc2init_bimodal
         end select
 
       case(scheme_bimodal)
@@ -1211,7 +1493,7 @@ contains
 
     ! The following are needed by the bimodal cloud scheme, hence we initialise
     ! them even when microphysics isn't used
-    ai             = 2.5700e-2_r_um
+    ai             = ai_in
     bi             = 2.00_r_um
     cx(84)         = 1.0_r_um
     constp(35)     = 1.0_r_um
@@ -1271,10 +1553,10 @@ contains
         l_mcr_precfrac = l_mcr_precfrac_in
         if ( l_mcr_precfrac ) THEN
           ! Set option for method of updating the precip fraction
-          select case ( i_update_precfrac_in )
-          case ( i_update_precfrac_homog )
+          select case ( update_precfrac_opt )
+          case ( update_precfrac_opt_homog )
             i_update_precfrac = i_homog_areas
-          case ( i_update_precfrac_correl )
+          case ( update_precfrac_opt_correl )
             i_update_precfrac = i_sg_correl
           end select
           ! Switch for extra checks on precip fraction
@@ -1311,7 +1593,7 @@ contains
         sediment_loc   = all_sed_start
         timestep_mp_in = 120
         z_surf         = real(z_surf_in, r_um)
-        aut_qc         = 2.47_r_um
+        aut_qc         = aut_qc_in
         !     Needed by the Seeder Feeder scheme
         l_orograin     = orog_rain
         l_orogrime     = orog_rime
@@ -1337,14 +1619,45 @@ contains
 
 
         casim_moments_option = 22222   ! all double moment
-        casim_iopt_act = 0_i_um     ! 'fixed number'
         casim_aerosol_option = 0_i_um   ! no soluble or insoluble aerosol modes
         casim_aerosol_process_level = 0_i_um
         casim_aerosol_couple_choice = 0_i_um
         l_ukca_aerosol = .false.
 
+        select case (casim_activation)
+
+          case (casim_activation_fixed)
+            casim_iopt_act = fixed_number
+
+          case (casim_activation_arg)
+            ! Mechanistic activation following Abdul-Razzak and Ghan, driven by
+            ! the GLOMAP modal aerosol, which must therefore be available.
+            if ( glomap_mode /= glomap_mode_ukca ) then
+              write( log_scratch_space, '(A)' )                                &
+                 'CASIM Abdul-Razzak and Ghan activation requires the UKCA '// &
+                 'GLOMAP aerosol, stopping'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+            casim_iopt_act = abdul_razzak_ghan
+
+          case default
+            write( log_scratch_space, '(A,I0)' )                               &
+               'Invalid CASIM activation option, stopping', casim_activation
+            call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+
+        end select
+
         casim_moments_choice = 1_i_um
         CALL casim_set_dependent_switches
+
+        if (casim_iopt_act == abdul_razzak_ghan) then
+          ! casim_set_dependent_switches only asks for the insoluble modes when
+          ! the ice nucleation scheme needs them, but LFRic always supplies the
+          ! full set of soluble and insoluble GLOMAP modes to CASIM. This is
+          ! safe here because the aerosol option is not passed on to CASIM until
+          ! the call to set_mphys_switches below.
+          casim_aerosol_option = soluble_insoluble_modes
+        end if
 
         ! Tell CASIM that its parent model is the UM. This allows for any UM-specific
         ! operations to take place within CASIM.
@@ -1393,7 +1706,7 @@ contains
 
         ! Set up stochastic physics options
         l_rp2_casim = l_rp2
-        
+
         ! Set up options for CASIM cloud fraction scheme
         l_cfrac_casim_diag_scheme = .false.
 
@@ -1564,30 +1877,76 @@ contains
       turb_startlev_vert  = 2
       turb_endlev_vert    = bl_levels
 
-      ! Options which are bespoke to the choice of scheme
-      select case ( mixing_method )
+      select case ( bl_scheme )
+      case ( bl_scheme_Kprof )
 
-      case( method_3d_smag )
-        l_subfilter_horiz = .true.
-        l_subfilter_vert  = .true.
-        blending_option   = off
-        non_local_bl      = off
-        ng_stress         = off
-      case( method_2d_smag )
-        l_subfilter_horiz = .true.
-        l_subfilter_vert  = .false.
-        blending_option   = off
-      case( method_blend_smag_fa )
-        l_subfilter_horiz = .true.
-        l_subfilter_vert  = .true.
-        blending_option   = blend_allpoints
-      case( method_blend_1dbl_fa )
-        l_subfilter_horiz = .true.
-        l_subfilter_vert  = .true.
-        blending_option   = blend_gridindep_fa
+        if (blending_Kprof /= blending_Kprof_3d_smag) then
+          cap_blended_ml = cap_blended_ml_in
+        end if
+
+        ! Options which are bespoke to the choice of scheme
+        select case ( blending_Kprof )
+
+        case( blending_Kprof_3d_smag )
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .true.
+          blending_option   = off
+          non_local_bl      = off
+          ng_stress         = off
+        case( blending_Kprof_2d_smag )
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .false.
+          blending_option   = off
+        case( blending_Kprof_blend_smag_fa )
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .true.
+          blending_option   = blend_allpoints
+        case( blending_Kprof_blend_1dbl_fa )
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .true.
+          blending_option   = blend_gridindep_fa
+        case( blending_Kprof_blend_cth_shcu_only )
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .true.
+          blending_option   = blend_cth_shcu_only
+          shallow_cu_maxtop = real(shallow_cu_maxtop_in, r_bl)
+        end select
+
+      case ( bl_scheme_HoC )
+
+        select case ( blending_HoC )
+
+        case( blending_HoC_3d_smag )
+          l_3dtke           = .false.
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .true.
+          blending_option   = off
+        case( blending_HoC_3dte_mk1 )
+          l_3dtke           = .true.
+          l_subfilter_horiz = .true.
+          l_subfilter_vert  = .false.
+
+          ! This option may be useful to determine mixing strength
+          ! between tke_levels and bl_levels, however, hardwire
+          ! this option off for now.
+          blending_option   = off
+
+          l_use_l_sq        = use_l_sq
+        end select
+
+      case default
+        if ( timestepping_method /= method_no_timestepping .and.               &
+             timestepping_method /= method_jules ) then
+          write( log_scratch_space, '(A)' )                                    &
+            'An unexpected boundary layer scheme is being used.'
+          call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+        end if
+
       end select
 
     else ! not Smagorinsky
+
+      l_3dtke           = .false.
 
       ! Switches for Smagorinsky being off
       blending_option   = off
@@ -1600,6 +1959,7 @@ contains
     ! Leonard terms on or off
     !-----------------------------------------------------------------------
     l_leonard_term = leonard_term
+    l_leonard_tke = leonard_tke
 
     !-----------------------------------------------------------------------
     ! UM Random Parameter scheme settings
@@ -1630,6 +1990,7 @@ contains
         g1_rp = rp_bl_cld_top_diffusion
         ice_fspd_rp = rp_mp_ice_fspd
         lambda_min_rp = rp_bl_min_mix_length
+        m_ci_rp = rp_mp_ci
         mp_czero_rp = rp_mp_mp_czero
         mpof_rp = rp_mp_mpof
         ndrop_surf_rp = rp_mp_ndrop_surf
